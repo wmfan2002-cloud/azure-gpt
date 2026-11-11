@@ -1,117 +1,130 @@
-# azure-gpt — error-triggered recovery for Magpie
+# Azure GPT — recover rejected history without changing Magpie
 
-A [magpie](https://usemagpie.ai) gateway middleware for one case: Codex talks
-to a relay that spreads a conversation's turns over several **Azure OpenAI
-resources**, and Azure's Responses API refuses every turn that lands on a
-resource other than the one that made the items it carries.
+An **OpenCode-compatible provider plugin for official Magpie**. It sends native
+Responses requests to your existing Azure relay, preserves normal reasoning,
+and repairs a request only after a specific cross-resource or decryption error.
+No Magpie source patch or separate proxy service is required.
 
-```
-The requested item was created under a different Azure OpenAI resource.
-Use the same resource that created the item to access it.
-The encrypted content for item rs_… could not be verified. Reason: …
+```text
+Codex → official Magpie → Azure GPT provider plugin → your Azure relay
 ```
 
-**Normal requests are unchanged.** On a supporting Magpie host, an explicit
-cross-resource or decryption rejection triggers one repaired retry on the
-same provider/model, before any output or tool activity. Only the providers
-you name participate. The next request again starts with complete reasoning;
-no permanent cleanup flag is remembered.
-
-**Version 0.2.0 requires the Magpie provider-recovery hook.** Stock Magpie
-currently lacks it. Installing the plugin alone preserves requests and logs
-a capability warning; automatic retry requires the [host patch](patches/README.md).
-See [the recovery contract](ERROR_RECOVERY.md).
-
-**Native compaction checkpoints are preserved in full.** They may be the
-only remaining record of earlier work. If one belongs to another Azure
-resource, resume on its original resource or restore the original history
-and create a text summary. Deleting the checkpoint would lose that history.
-
-Ported from [codex-strip-proxy](https://github.com/AnnaofArendelle/codex-strip-proxy);
-details and the differences are in
-[`packages/codex-strip/PROVENANCE.json`](packages/codex-strip/PROVENANCE.json).
-
-## Install on another machine
-
-Two ways; both load the same file.
-
-**From GitHub**, with magpie's Bun installer:
+## Install and connect
 
 ```sh
-magpie plugin add github:wmfan2002-cloud/azure-gpt
+magpie plugin add github:wmfan2002-cloud/azure-gpt#main
+magpie plugin login azure-gpt
 ```
 
-**From a clone** (no Bun download; the plugin runs in magpie's own engine):
+The sign-in asks for your relay's Responses base URL, such as
+`https://relay.example.com/v1`, and its API key. The key is kept by Magpie's
+normal plugin sign-in store. The plugin never reads another channel's keys.
+The relay's `/models` endpoint supplies the model list.
+
+In Magpie, select **Azure GPT · 按报错修复** as the provider for Codex, then
+choose the original model and reasoning level. This is a new provider: merely
+installing it does not intercept an existing `agent/...` channel.
+
+To install local unpublished changes:
 
 ```sh
 git clone https://github.com/wmfan2002-cloud/azure-gpt.git
 magpie plugin add ./azure-gpt
 ```
 
-Then name the providers it should act on — the **provider id**, as
-`magpie providers` lists it (`provider/<id>`), not the display name:
+### A relay with a manual model list
 
-```sh
-magpie plugin options codex-strip '{"providers": ["azure-relay"]}'
-```
-
-`codex-strip` is the short name; the package's own name also works.
-
-With no providers configured, it changes nothing.
-On a patched host, **Plugins › Installed** lists `onProviderError` alongside
-`onProvider`. A repaired request produces a log entry such as:
-
-```
-codex-strip: azure-relay recovery after invalid_encrypted_content; 1 reasoning item removed
-```
-
-For Windows, the same provider configuration can be pasted into
-**Plugins › Installed › Options** without shell quoting:
+Use **Plugins → Installed → Options** to set non-secret connection details and
+model metadata. Keep the upstream's actual limits and supported reasoning
+levels. A `models` object disables `/models` discovery; the supplied list is
+used as written. `headers` can carry required non-secret client headers.
 
 ```json
-{ "providers": ["azure-relay"], "mode": "on-error" }
+{
+  "baseURL": "https://relay.example.com/v1",
+  "models": {
+    "your-model-id": {
+      "name": "Your model",
+      "reasoning": true,
+      "tool_call": true,
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "variants": { "low": {}, "medium": {}, "high": {} }
+    }
+  }
+}
 ```
 
-## Apply the host half for automatic retry
+After configuring the URL here, sign-in only asks for the API key. Enter keys
+in Magpie's sign-in dialog, not in plugin options or shell arguments.
 
-The host patch adds pre-output failure handling to the existing middleware
-engine and connects agent-requested text compaction to that same chain.
+## What happens to reasoning
 
-[`patches/magpie-provider-recovery.patch`](patches/magpie-provider-recovery.patch)
-is a **Magpie source patch**, to apply when building Magpie. It supersedes
-the earlier compaction-only patch and is not installed by `magpie plugin add`.
-See [the integration instructions](patches/README.md).
+1. **Every request starts intact.** The plugin does not remove reasoning, IDs,
+   searches, or history before sending it, and does not change model, effort,
+   tools, output limits or `include`.
+2. **Only the specified Azure errors trigger repair.** The plugin recognizes
+   HTTP error responses and pre-output SSE failures, including HTTP 200 with
+   `response.failed`.
+3. **Only that transport call is retried, at most once.** A named bad item is
+   repaired selectively; an unidentified rejection requires broader cleanup
+   on that attempt. The next call again sends the original history.
+4. **New output remains intact.** After any reasoning, output item or tool
+   activity begins, the plugin passes the stream through and never replays it.
 
-Prefer Magpie's text compaction for a relay that changes Azure resources.
-The patch does not make native `/responses/compact` ciphertext portable.
+The inspected prefix is bounded to 64 KiB and is replayed byte-for-byte on
+normal responses; the plugin does not buffer an entire successful stream.
+Cancellation propagates to upstream fetch and stream reading.
 
-## Options
+Opaque compaction checkpoints, unresolved references and encrypted-only
+messages are retained. If they prevent safe repair, the plugin returns
+`azure_gpt_history_unavailable`. A repeated history rejection returns
+`azure_gpt_recovery_failed`. These explicit errors also keep Magpie's built-in
+decryption fallback from starting a broader history cleanup after the plugin
+has stopped.
 
-Cleanup options below apply to the single repair attempt, not normal requests.
-`mode:"always"` explicitly restores the 0.1.1 pre-cleaning behavior.
+Magpie or Codex may independently retry a failed call according to their own
+settings; this plugin does not install a gateway-wide retry policy. See
+[the transport contract](ERROR_RECOVERY.md).
 
-| Option | Default | |
-| --- | --- | --- |
-| `providers` | — | Provider ids it acts on: a list, one string, or `{"id": true}`. |
-| `mode` | `"on-error"` | Preserve normal requests; repair after a host-confirmed rejection. `"always"` enables legacy pre-cleaning. |
-| `ids` | `true` | Strip IDs of content-bearing items. `true` and omission use the same whitelist; `"all"` includes unknown item kinds, `false` keeps IDs. Compaction checkpoints are always preserved. |
-| `keepIds` | `[]` | Retain IDs on these surviving item types. |
-| `encrypted` | `true` | Remove reasoning items, retaining readable text as notes; strip other `encrypted*` fields and encrypted content parts. Compaction is preserved. `false` keeps encrypted state. |
-| `itemReferences` | `"drop"` in legacy mode | Legacy pre-cleaning can drop references. On-error mode stops repair if a reference cannot be reconstructed. |
-| `store` | `"off"` | Send `store: false`; `"keep"` leaves it as sent. |
-| `previousResponse` | `false` | `"drop"` is legacy-only. On-error mode stops repair when a response reference remains unresolved. |
-| `historySearch` | `"note"` when `encrypted` is enabled; otherwise `"keep"` | Convert past native searches to text records so they no longer require the removed reasoning. Explicit `"keep"` preserves native search items. |
-| `aliases` | `{}` | `{"old-id": "new-id"}`, for a renamed provider. |
+## Upgrade from 0.1.x / 0.2.0
 
-See the [package README](packages/codex-strip/README.md) for request handling
-and the [changelog](CHANGELOG.md) for the `0.2.0` behavior changes.
+The root package is now `@magpie-community/azure-gpt`, a provider plugin.
+The old middleware remains separately available under `packages/codex-strip`
+for existing explicit users. It is not loaded by the new root package.
 
-## Tests
+1. Install the new provider plugin and sign in to the original relay.
+2. Select its provider/model in Magpie; preserve the original reasoning level.
+3. Disable the old `codex-strip` middleware so two repair mechanisms do not run.
+4. If using the earlier patched executable, restore the original official
+   Magpie after active requests finish. Restart once to load that executable.
+
+Normal plugin updates then use Magpie's plugin manager; they need no custom
+Magpie build. The source patches in `patches/` document the retired 0.2.0
+approach and are not used by 0.3.0.
+
+## 中文快速说明
+
+这是渠道插件，不再是依赖主程序补丁的请求中间件。安装后在 Magpie 中为
+**Azure GPT · 按报错修复** 登录原来的中转 API Key，再给 Codex 选用该渠道。
+正常请求保留完整 reasoning；遇到对应错误且尚未输出时才修复并重试一次。
+不会把整个会话切成永久清理模式，也不会改本地对话历史。
+
+跨资源报错可能在后续请求再次发生。要持续复用原始加密推理状态，上游仍需把
+同一对话固定到兼容的 Azure 资源；插件在资源不兼容时负责恢复可继续的请求。
+
+## Source and checks
+
+The repair rules reuse this repository's 0.2.0 history handling; its original
+source attribution is in [PROVENANCE.json](packages/codex-strip/PROVENANCE.json).
+The provider adapter and bounded streaming transport were added in 0.3.0.
+
+Parser checks can be run without sending a model request:
 
 ```sh
-bun test packages/codex-strip
+node --check packages/azure-provider/index.js
+node --check packages/azure-provider/transport.js
 ```
 
-`packages/codex-strip/cases.json` contains the legacy pre-cleaning fixtures
-with explicit `mode:"always"`. Earlier execution results are recorded under
-`0.1.0` in the changelog.
+The existing `bun test packages/codex-strip` suite covers the legacy middleware,
+not the new transport. Current build/load evidence and deployment state are in
+[BUILD-STATUS.md](patches/BUILD-STATUS.md).

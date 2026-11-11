@@ -1,15 +1,13 @@
 {
-  "name": "@magpie-community/middleware-codex-strip",
-  "version": "0.2.0",
+  "name": "@magpie-community/azure-gpt",
+  "version": "0.3.0",
   "private": true,
-  "description": "Error-triggered Azure Responses recovery for Magpie: preserve normal reasoning and repair rejected requests once",
+  "description": "Azure Responses provider for stock Magpie: retain normal reasoning and repair only rejected requests",
   "type": "module",
+  "main": "./packages/azure-provider/index.js",
+  "exports": "./packages/azure-provider/index.js",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/wmfan2002-cloud/azure-gpt.git" },
-  "magpie": {
-    "middleware": "./packages/codex-strip/codex-strip.middleware.js",
-    "options": { "providers": ["azure-relay"], "aliases": {} }
-  },
   "scripts": {
     "test": "bun test packages/codex-strip"
   }

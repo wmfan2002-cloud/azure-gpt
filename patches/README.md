@@ -1,4 +1,8 @@
-# Magpie provider-error recovery hook
+# Historical Magpie provider-error recovery hook
+
+**Version 0.3.0 uses the official provider-plugin transport and requires none
+of these patches.** The following integration notes belong to 0.2.0 and
+earlier middleware installations. New installations follow the root README.
 
 ## 0.2.0: apply the complete recovery patch
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 — 2026-11-11
+
+- Replace the root middleware entry point with an OpenCode-compatible
+  `azure-gpt` provider plugin for official Magpie; no application patch.
+- Own upstream fetch so HTTP and pre-output SSE Azure history failures can
+  be repaired internally. Normal requests and streamed output remain intact.
+- Bound prefix inspection, propagate cancellation and never retry after
+  reasoning/output/tool activity starts. Retry at most once per transport
+  invocation; outer Magpie/client retries remain independently configured.
+- Return explicit terminal history errors instead of triggering Magpie's
+  broader decryption cleanup after safe repair stops.
+- Use Magpie's standard API-key sign-in and configurable Responses endpoint,
+  model metadata and client headers. No credential-file access.
+- Keep `packages/codex-strip` as a separate legacy entry point. The root
+  package name changes to `@magpie-community/azure-gpt`; disable the old
+  middleware when switching to the new provider.
+
 ## 0.2.0 — 2026-11-11
 
 - Default to `mode:"on-error"`: normal requests are unchanged, including
