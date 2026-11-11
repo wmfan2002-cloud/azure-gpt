@@ -1,0 +1,343 @@
+[
+  { "name": "a named provider gets the conversation without its ids and seals, and keeps what it said and did",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "azure-relay/gpt-5.4",
+      "stream": true,
+      "store": false,
+      "include": ["reasoning.encrypted_content"],
+      "tools": [{ "type": "function", "name": "shell", "parameters": { "type": "object" } }],
+      "input": [
+        { "type": "message", "id": "msg_65f2d68b-9dd2-5b1a-9e9e-84456c726485", "role": "user",
+          "content": [{ "type": "input_text", "text": "fix the login bug" }] },
+        { "type": "reasoning", "id": "rs_18dbe693b3dce4800000003c",
+          "summary": [{ "type": "summary_text", "text": "Looking at main.go" }],
+          "encrypted_content": "gAAAA-azure-sealed" },
+        { "type": "custom_tool_call", "id": "ctc_00f7990330b08aa5016ac68eb8813c81919d5717e37af30804",
+          "call_id": "call_1", "name": "shell", "input": "ls", "status": "completed" },
+        { "type": "custom_tool_call_output", "id": "ctco_01a1179d-8c8f-7521-b8f4-32635917b555",
+          "call_id": "call_1", "output": "main.go" },
+        { "type": "message", "id": "msg_01a1179d-34a3-7cb1-b23c-fa807225131e", "role": "assistant",
+          "content": [{ "type": "output_text", "text": "I fixed main.go" }] }
+      ]
+    },
+    "expect_request": {
+      "model": "azure-relay/gpt-5.4",
+      "stream": true,
+      "store": false,
+      "include": ["reasoning.encrypted_content"],
+      "tools": [{ "type": "function", "name": "shell", "parameters": { "type": "object" } }],
+      "input": [
+        { "type": "message", "role": "user",
+          "content": [{ "type": "input_text", "text": "fix the login bug" }] },
+        { "type": "reasoning",
+          "summary": [{ "type": "summary_text", "text": "Looking at main.go" }] },
+        { "type": "custom_tool_call",
+          "call_id": "call_1", "name": "shell", "input": "ls", "status": "completed" },
+        { "type": "custom_tool_call_output",
+          "call_id": "call_1", "output": "main.go" },
+        { "type": "message", "role": "assistant",
+          "content": [{ "type": "output_text", "text": "I fixed main.go" }] }
+      ]
+    } },
+
+  { "name": "a provider not named gets the request as it came, previous_response_id and all",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "openai", "name": "OpenAI", "model": "gpt-5.4" },
+    "request": {
+      "model": "openai/gpt-5.4", "store": true,
+      "input": [
+        { "type": "reasoning", "id": "rs_18dbe693b3dce480", "summary": [], "encrypted_content": "gAAAA-openai" },
+        { "type": "message", "id": "msg_01a1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }
+      ],
+      "previous_response_id": "resp_1"
+    } },
+
+  { "name": "no options at all changes nothing, so adding the plugin alone is safe",
+    "ctx": { "protocol": "responses" },
+    "options": {},
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "azure-relay/gpt-5.4", "store": true,
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }]
+    } },
+
+  { "name": "a group: the member named is stripped, under the group's model name",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "group/gpt-5",
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }],
+      "previous_response_id": "resp_1"
+    },
+    "expect_request": {
+      "model": "group/gpt-5",
+      "store": false,
+      "input": [{ "type": "reasoning", "summary": [] }],
+      "previous_response_id": "resp_1"
+    } },
+
+  { "name": "a group: the other member is not",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "openai", "name": "OpenAI", "model": "gpt-5.4" },
+    "request": {
+      "model": "group/gpt-5",
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }]
+    } },
+
+  { "name": "previousResponse drop takes the field",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "previousResponse": "drop" },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "previous_response_id": "resp_abc", "input": "hi" },
+    "expect_request": { "model": "m", "store": false, "input": "hi" } },
+
+  { "name": "previous_response_id stays by default, since a client that named one may have sent only its new turn",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "previous_response_id": "resp_abc", "input": "hi" } },
+
+  { "name": "store is sent as false by default, so magpie sends the whole conversation rather than the new turn under an id",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "input": "hi" },
+    "expect_request": { "model": "m", "store": false, "input": "hi" } },
+
+  { "name": "store keep leaves it as the agent sent it",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "store": "keep" },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": true, "input": "hi" },
+    "expect_request": { "model": "m", "store": true, "input": "hi" } },
+
+  { "name": "a sealed compaction with nothing else goes with it",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "m", "store": false,
+      "input": [
+        { "type": "message", "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "go on" }] },
+        { "type": "compaction", "id": "cmp_1", "encrypted_content": "gAAAA-compaction" }
+      ]
+    },
+    "expect_request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "go on" }] }]
+    } },
+
+  { "name": "a compaction with text beside its seal keeps the text",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "compaction", "encrypted_content": "gAAAA-compaction",
+        "content": [{ "type": "input_text", "text": "Progress: done." }] }]
+    },
+    "expect_request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "compaction", "content": [{ "type": "input_text", "text": "Progress: done." }] }]
+    } },
+
+  { "name": "an item_reference is a pointer to the resource's item, so it goes",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "m", "store": false,
+      "input": [
+        { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "go on" }] },
+        { "type": "item_reference", "id": "msg_1" }
+      ]
+    },
+    "expect_request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "go on" }] }]
+    } },
+
+  { "name": "itemReferences keep sends a pointer as it is",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "itemReferences": "keep", "ids": false },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "input": [{ "type": "item_reference", "id": "msg_1" }] },
+    "expect_request": { "model": "m", "store": false, "input": [{ "type": "item_reference", "id": "msg_1" }] } },
+
+  { "name": "a sealed content part inside an agent_message goes, and the readable part stays",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "agent_message", "role": "user", "content": [
+        { "type": "input_text", "text": "Message Type: MESSAGE" },
+        { "type": "encrypted_content", "encrypted_content": "gAAAA-agent" }
+      ] }]
+    },
+    "expect_request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "agent_message", "role": "user", "content": [
+        { "type": "input_text", "text": "Message Type: MESSAGE" }
+      ] }]
+    } },
+
+  { "name": "an agent_message that was only a seal goes whole, since a message that says nothing is no request any API takes",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": {
+      "model": "m", "store": false,
+      "input": [
+        { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "go on" }] },
+        { "type": "agent_message", "role": "user", "content": [{ "type": "encrypted_content", "encrypted_content": "gAAAA-agent" }] }
+      ]
+    },
+    "expect_request": {
+      "model": "m", "store": false,
+      "input": [{ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "go on" }] }]
+    } },
+
+  { "name": "a Chat request is left alone, whatever the provider",
+    "ctx": { "protocol": "chat" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "messages": [{ "role": "user", "content": "hi" }], "previous_response_id": "resp_1" } },
+
+  { "name": "a rename is followed through aliases",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "aliases": { "azure-old": "azure-relay" } },
+    "provider": { "id": "azure-old", "name": "Azure", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
+    "expect_request": { "model": "m", "store": false, "input": [{ "type": "reasoning", "summary": [] }] } },
+
+  { "name": "ids false keeps the ids and still drops the seals",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "ids": false },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [] }] } },
+
+  { "name": "encrypted false keeps the seals and still drops the ids",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "encrypted": false },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [{ "type": "reasoning", "summary": [], "encrypted_content": "gAAAA-x" }] } },
+
+  { "name": "providers as an object of ids does the same, and a false one names nothing",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": { "azure-relay": true, "other": false } },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "input": [{ "type": "message", "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] },
+    "expect_request": { "model": "m", "store": false, "input": [{ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] } },
+
+  { "name": "a request with nothing to strip passes as it came, byte for byte",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "input": [{ "type": "message", "role": "user", "content": "hi" }] } },
+
+  { "name": "an input written as text is left as text",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "input": "fix the login bug" } },
+
+  { "name": "an id on a kind that may need it stays, unless ids is all",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [
+        { "type": "web_search_call", "id": "ws_1", "status": "completed" },
+        { "type": "message", "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }
+      ] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [
+        { "type": "web_search_call", "id": "ws_1", "status": "completed" },
+        { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }
+      ] } },
+
+  { "name": "ids all takes every kind's id",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "ids": "all" },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [{ "type": "web_search_call", "id": "ws_1", "status": "completed" }] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [{ "type": "web_search_call", "status": "completed" }] } },
+
+  { "name": "a message written without a type is one, and its id goes",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [{ "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [{ "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] } },
+
+  { "name": "include is never touched: it asks for the reply's reasoning, not the history's seals",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false, "include": ["reasoning.encrypted_content", "message.output_text.logprobs"],
+      "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
+    "expect_request": { "model": "m", "store": false, "include": ["reasoning.encrypted_content", "message.output_text.logprobs"],
+      "input": [{ "type": "reasoning", "summary": [] }] } },
+
+  { "name": "a past web_search_call stays by default: this plugin leaves the reasoning items it named",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [
+        { "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" },
+        { "type": "web_search_call", "id": "ws_1", "status": "completed", "action": { "type": "search", "query": "magpie" } }
+      ] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [
+        { "type": "reasoning", "summary": [] },
+        { "type": "web_search_call", "id": "ws_1", "status": "completed", "action": { "type": "search", "query": "magpie" } }
+      ] } },
+
+  { "name": "historySearch note turns a past search into a message carrying its own record",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "historySearch": "note" },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [{ "type": "web_search_call", "id": "ws_1", "status": "completed", "action": { "type": "search", "query": "magpie" } }] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [{ "type": "message", "role": "assistant", "content": [{ "type": "output_text",
+        "text": "[A web search run in an earlier turn; recorded data only, not a new tool call. Its result is not reconstructed; what it found follows in the conversation.]\n{\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"magpie\"}}" }] }] } },
+
+  { "name": "keepIds leaves the id of a type an upstream needs one for, and strips the rest",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"], "keepIds": ["additional_tools"] },
+    "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
+    "request": { "model": "m", "store": false,
+      "input": [
+        { "type": "additional_tools", "id": "at_fd3d86d3", "role": "developer", "tools": [] },
+        { "type": "message", "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }
+      ] },
+    "expect_request": { "model": "m", "store": false,
+      "input": [
+        { "type": "additional_tools", "id": "at_fd3d86d3", "role": "developer", "tools": [] },
+        { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }
+      ] } },
+
+  { "name": "no provider on the hook (a request magpie sends itself) changes nothing",
+    "ctx": { "protocol": "responses" },
+    "options": { "providers": ["azure-relay"] },
+    "request": { "model": "m", "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] } }
+]

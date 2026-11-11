@@ -1,0 +1,16 @@
+{
+  "name": "@magpie-community/middleware-codex-strip",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codex behind a relay that spreads a conversation over several Azure OpenAI resources: strip the state one resource would have to read back, for the providers you name and no others",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/wmfan2002-cloud/azure-gpt.git" },
+  "magpie": {
+    "middleware": "./packages/codex-strip/codex-strip.middleware.js",
+    "options": { "providers": ["azure-relay"], "aliases": {} }
+  },
+  "scripts": {
+    "test": "bun test packages/codex-strip"
+  }
+}

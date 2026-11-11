@@ -1,0 +1,14 @@
+{
+  "name": "@magpie-community/middleware-codex-strip",
+  "version": "0.1.0",
+  "description": "Codex on a relay that spreads a conversation over several Azure OpenAI resources: strip the state one resource would have to read back (item ids, encrypted reasoning, previous_response_id), for the providers you name and no others",
+  "type": "module",
+  "files": ["codex-strip.middleware.js", "README.md", "LICENSE", "PROVENANCE.json"],
+  "keywords": ["magpie", "magpie-middleware", "codex", "azure-openai", "responses", "one-api", "llm-gateway"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/magpie-community/plugins.git", "directory": "packages/codex-strip" },
+  "magpie": {
+    "middleware": "./codex-strip.middleware.js",
+    "options": { "providers": ["azure-relay"], "aliases": {} }
+  }
+}

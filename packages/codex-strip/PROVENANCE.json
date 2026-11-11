@@ -1,0 +1,26 @@
+{
+  "source": "https://github.com/AnnaofArendelle/codex-strip-proxy",
+  "commit": "f28af95966200a614c671b73aa3e1e581ac2141b",
+  "license": "none declared at that commit (no LICENSE file); ported with credit to the author",
+  "files": {
+    "codex_strip_proxy.py": {
+      "sha256": "422f19081195d5586521e1abce5789b12a709ee60dbc93e19a774a4445965fc4"
+    },
+    "README.md": {
+      "sha256": "faa4f6bdbe69e7f02184cac17d739d3a827867591d2bf253c0b8aea2e9178dd2"
+    }
+  },
+  "changes": [
+    "A gateway middleware instead of a local HTTP proxy: no port, no base_url change, and one file with no imports.",
+    "PerProvider: it acts in onProvider on the provider ids the options name, so a group, a fallback or a direct request is changed only on the tries that reach one of them.",
+    "What it removes is a superset of the proxy's: item ids, every encrypted* field (not only top level ones), a content part of type encrypted_content, and item_reference, which holds nothing but an id on the resource.",
+    "Ids are taken only from the item kinds that carry their own contents, plus the reasoning and compaction kinds: the portable list is codex-history's (packages/codex-history, MIT, itself from Codex Filter Manager), whose note says another tool or resource type may need its id, so ids are not stripped recursively. ids: \"all\" removes every kind's.",
+    "include is never touched: it asks for reasoning in the reply, not for the history's ciphertext, and an upstream may turn the request away over a changed include (codex-history's note, kept here and covered by a case).",
+    "historySearch: \"note\" is codex-history's v0.1.1 web_search_call conversion, offered as an option rather than the default: this plugin leaves the reasoning items a search call names, so the refusal that conversion answers does not arise here. It is on for a relay that answers it anyway.",
+    "store: false is sent by default, as the proxy does not need to but magpie does: a provider magpie takes for Azure or OpenAI keeps responses itself and would otherwise send the next turn as the new input alone under its own id (internal/gateway/prev_response.go, prevKeeps and prevDelta).",
+    "previous_response_id is removed only with previousResponse: true. The proxy removes it always; in magpie the field has already been resolved and deleted when magpie holds the response, so one still present is a response magpie does not hold, and removing it can drop the history a client that sends only its new turn relies on.",
+    "A sealed compaction that held nothing but its ciphertext is removed with it, where the proxy leaves an item with no content behind.",
+    "Chat and Messages requests are left alone: only a Responses request carries Azure resource state.",
+    "The reasoning look is by field name (encrypted*) exactly as the proxy does; no content is read, logged or kept, and the line it writes to magpie's log counts what it took out."
+  ]
+}
