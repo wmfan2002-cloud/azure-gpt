@@ -1,4 +1,30 @@
-# Include agent-requested compaction in Magpie middleware
+# Magpie provider-error recovery hook
+
+## 0.2.0: apply the complete recovery patch
+
+Use `magpie-provider-recovery.patch` against
+[Magpie `5c02be05b87719baaa84d569cbc2930fa5943fdd`](https://github.com/yetone/magpie/tree/5c02be05b87719baaa84d569cbc2930fa5943fdd).
+It adds `onProviderError` to the existing JS engine and a single pre-output
+repair retry. It includes text-compaction integration and supersedes the
+older patch below; do not apply both to the same checkout.
+
+```sh
+git apply --check ../azure-gpt/patches/magpie-provider-recovery.patch
+git apply ../azure-gpt/patches/magpie-provider-recovery.patch
+go build -tags nogui ./...
+```
+
+The host supplies fixed failure metadata, enforces cancellation and
+`errors=pass`, refuses retries after output/reasoning/tool activity, and
+limits repair to one attempt on the same provider/account/model. Repaired
+history is local to that attempt. The host accepts changes only to input
+and storage/reference fields. See [the contract](../ERROR_RECOVERY.md).
+
+The plugin installer does not replace Magpie. Build/check the host separately
+before switching a gateway used by active conversations. Exact local build
+results are recorded in `BUILD-STATUS.md` alongside this document.
+
+## 0.1.1: historical compaction-only patch
 
 Use `magpie-compaction-middleware.patch` when building a Magpie version whose
 `codexCompact` calls `s.serve` directly. That path handles a Codex

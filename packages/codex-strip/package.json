@@ -1,7 +1,7 @@
 {
   "name": "@magpie-community/middleware-codex-strip",
-  "version": "0.1.1",
-  "description": "Portable Codex history for selected Azure relay providers: remove replayed reasoning, retain readable records and preserve native compaction checkpoints",
+  "version": "0.2.0",
+  "description": "Error-triggered Azure Responses recovery for Magpie: preserve normal reasoning and repair rejected requests once",
   "type": "module",
   "files": ["codex-strip.middleware.js", "README.md", "LICENSE", "PROVENANCE.json"],
   "keywords": ["magpie", "magpie-middleware", "codex", "azure-openai", "responses", "one-api", "llm-gateway"],

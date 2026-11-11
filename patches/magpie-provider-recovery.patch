@@ -1,0 +1,560 @@
+diff --git a/docs/subsystems/gateway-middleware.md b/docs/subsystems/gateway-middleware.md
+index c467113..c7921ac 100644
+--- a/docs/subsystems/gateway-middleware.md
++++ b/docs/subsystems/gateway-middleware.md
+@@ -28,6 +28,31 @@ plugins.json is the source of truth for which middleware is installed and on, in
+ 5. `Run.Wrap` wraps the response writer when some middleware has `onEvent` or `onResponse`. An SSE reply is split into events. Each event whose data is a JSON object goes to every `onEvent` that wants its name (`export const events`): an object replaces it, `null` drops it, and `undefined` writes the original bytes. `data: [DONE]` and other non-object data pass by. A whole JSON reply is buffered for `onResponse`, with `ctx.status` set. A reply with a `Content-Encoding` passes as-is.
+ 6. `Run.End` returns the runtimes to their pools.
+ 
++### Provider-error recovery
++
++`Run.ProviderError` invokes `onProviderError(body, ctx)` after an explicit
++Azure resource or encrypted-content validation failure, before normal
++fallback. `ctx.provider.recoverySupported` advertises support. The host sets
++`ctx.failure` with `kind`, `status`, `attempt:1`, `outputStarted:false` and an
++optional rejected `itemID`; raw errors, headers and credentials are omitted.
++
++Return `undefined` for existing host handling, `{action:"stop"}` to return
++the failed response, or `{action:"retry",body}` to retry once. Only `input`,
++`store` and `previous_response_id` may change. The retry uses the same
++provider/account/model through the normal lane and budget checks; it does
++not replace shared history or establish a persistent cleanup flag. A failed
++repair returns an error rather than running another recovery or fallback.
++
++The gateway requires no output, reasoning or tool activity, an active client,
++and `errors` other than `pass`. Held SSE failures and HTTP validation errors
++use the same path. Generic server/auth/quota/timeout/safety errors do not
++trigger this interface. `ctx.failure` is cleared after the callback.
++
++`serveAgentMiddleware` is the shared JS chain for ordinary agent requests
++and `codexCompact` text-summary attempts. Summary attempts do not reenter
++conversation recording or asynchronous gateway hooks. Native checkpoint
++decryption and the standalone compact endpoint keep their original paths.
++
+ Each middleware gets one runtime for the whole request, so its hooks share `ctx.state`. Runtimes come from a per-middleware `sync.Pool` and modules are compiled once per load. Compiling a plugin's module (imports kept inside the plugin) is [`internal/jsmod`](../../internal/jsmod/jsmod.go), which agent plugins ([Agent wiring](agent-wiring.md)) share.
+ 
+ Only requests agents send go through `serveAgent`. magpie's own requests (thread titles, the router's classifier, the search and vision stand-ins) call `serve` directly. A search or an image's description asked while an agent's request is served is made on that request's context, and takes the request's middleware off it (`ownAsk`): the runtimes are the request's, which one goroutine may use at a time (moejs), and `Run` has no lock to hold callers to it, and these asks go beside it and each other, so images described at once ran `onProvider` on one runtime and the gateway died of `concurrent map read and map write`. Nor does the hooks' `ctx` describe them: a description's body is Chat and a search's Anthropic, whatever `ctx.protocol` names, and `ctx.model` and `ctx.stream` are the agent's (#3695, `TestImagesDescribedWithoutTheAgentsMiddleware`, `TestSearchesWithoutTheAgentsMiddleware`). Middleware sees bodies before redaction, which still applies upstream, through the `redact` plugin's masker; masking asked for with no masker serving sends nothing ([Plugin runtime](plugin-runtime.md)).
+diff --git a/internal/gateway/codex_backend.go b/internal/gateway/codex_backend.go
+index 42257df..ac69779 100644
+--- a/internal/gateway/codex_backend.go
++++ b/internal/gateway/codex_backend.go
+@@ -3780,9 +3780,11 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 	r = r.WithContext(budget)
+ 	r = askWhole(r)
+ 	r = askCompaction(r)
++	recovery := &providerRecoveryBudget{}
++	r = r.WithContext(context.WithValue(r.Context(), providerRecoveryKey{}, recovery))
+ 	ask := func(r *http.Request, b []byte) (*recorder, compactResult, error) {
+ 		rec := &recorder{header: http.Header{}, status: 200}
+-		s.serve(rec, r, provider.Responses, b)
++		s.serveAgentMiddleware(rec, r, provider.Responses, b)
+ 		if rec.status >= 400 {
+ 			return rec, compactResult{}, nil
+ 		}
+@@ -3807,7 +3809,7 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 	// for the same refusal, and one may say it in an error event after a
+ 	// 200 (roleRefused); a summary with no developer message to give back
+ 	// is not asked again the same
+-	if roleRefused(rec, err) && !late() && !bytes.Equal(developerItemsAsSystem(body), body) {
++	if !recovery.terminal && roleRefused(rec, err) && !late() && !bytes.Equal(developerItemsAsSystem(body), body) {
+ 		who, msg := compactFailure(body, rec)
+ 		if err != nil {
+ 			msg = "broken off: " + err.Error()
+@@ -3816,18 +3818,20 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 		rec, res, err = ask(askAsSent(r), body)
+ 	}
+ 	local := ""
+-	if late() {
++	if late() && !recovery.terminal {
+ 		local = lateSummary()
+ 		rec, res, err = &recorder{header: http.Header{}, status: 200}, compactResult{}, nil
+-	} else if first := rec.status; lacksEndpoint(first) || itemNotFound(rec) || inputKindRefused(rec, err) || roleRefused(rec, err) || protectionRefused(first, rec.body.Bytes()) ||
+-		summaryTooLarge(rec) || err != nil && protectionWords.MatchString(err.Error()) {
++	} else if first := rec.status; !recovery.terminal && (lacksEndpoint(first) || itemNotFound(rec) || inputKindRefused(rec, err) || roleRefused(rec, err) || protectionRefused(first, rec.body.Bytes()) ||
++		summaryTooLarge(rec) || err != nil && protectionWords.MatchString(err.Error())) {
+ 		who, msg := compactFailure(body, rec)
+ 		if err != nil {
+ 			msg = "broken off: " + err.Error()
+ 		}
+ 		log.Printf("codex compaction: %s answered %d (%s); asking again with the conversation as text", who, first, msg)
+ 		rec, res, err = ask(r, plainCompact(body))
+-		if late() {
++		if recovery.terminal {
++			// Keep the failed repair for the error response below.
++		} else if late() {
+ 			local = lateSummary()
+ 			rec, res, err = &recorder{header: http.Header{}, status: 200}, compactResult{}, nil
+ 		} else if rec.status >= 400 || err != nil {
+@@ -3842,7 +3846,7 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 			rec, res, err = &recorder{header: http.Header{}, status: 200}, compactResult{}, nil
+ 		}
+ 	}
+-	if prev && local == "" && (rec.status >= 400 || err != nil) {
++	if !recovery.terminal && prev && local == "" && (rec.status >= 400 || err != nil) {
+ 		// the thread's old model can't summarise it — Codex's sign-in used
+ 		// up, the model gone — and the turn is on another: compacted
+ 		// locally, the thread goes on on the model it was switched to,
+@@ -3855,7 +3859,7 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 		local = localSummary(body, fmt.Sprintf("%s answered %d to the summary request: %s", who, rec.status, msg))
+ 		rec, res, err = &recorder{header: http.Header{}, status: 200}, compactResult{}, nil
+ 	}
+-	if local == "" && (err != nil && strings.HasSuffix(err.Error(), errEndedShort.Error()) || summaryEndedShort(rec)) {
++	if !recovery.terminal && local == "" && (err != nil && strings.HasSuffix(err.Error(), errEndedShort.Error()) || summaryEndedShort(rec)) {
+ 		// nobody left, and the last one's stream broke off before its end
+ 		// (#2274): the words before the cut are no summary, and Codex,
+ 		// told a 502, asked the same huge summary over, three times, until
+@@ -3900,7 +3904,7 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 		}
+ 		err = fmt.Errorf("%s (%s)", incompleteReply, why)
+ 	}
+-	if err != nil && prev {
++	if !recovery.terminal && err != nil && prev {
+ 		who, _ := compactFailure(body, rec)
+ 		log.Printf("codex compaction: %s: %v on the model the thread is leaving; compacting locally", who, err)
+ 		local, err = localSummary(body, who+": "+err.Error()), nil
+@@ -3929,6 +3933,12 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
+ 		log.Printf("codex compaction: %s wrote no summary%s; asking again with the conversation as text", who, called)
+ 		prec, pres, perr := ask(r, plainCompact(body))
+ 		switch {
++		case recovery.terminal:
++			who, msg := compactFailure(body, prec)
++			status := max(prec.status, http.StatusBadGateway)
++			if perr != nil { msg = perr.Error() }
++			writeVendorError(w, provider.Responses, status, compactFailed(who, status, msg), prec.body.Bytes())
++			return
+ 		case late():
+ 			local = lateSummary()
+ 		case perr == nil && prec.status < 400 && pres.Status != "incomplete" && strings.TrimSpace(pres.summary()) != "":
+diff --git a/internal/gateway/gateway.go b/internal/gateway/gateway.go
+index ad7698e..f9462fd 100644
+--- a/internal/gateway/gateway.go
++++ b/internal/gateway/gateway.go
+@@ -3357,12 +3357,19 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
+ 	promptRead := s.inspectPrompt(tr, from, body, body, sentWhole)
+ 	var lastTried provider.Provider // the last try's, for its model's context window and the usage's endpoint
+ 	var skipped []string
+-	sent := ""       // the reasoning the last try's model was asked for
+-	wentAt := ""     // and the level that went, once translated (wireEffort, #1636)
+-	wentTier := ""   // the service tier the last try went out at (noteWireTier, #1784)
+-	where := ""      // the last try's provider.Where, for the usage
+-	again := 0       // times the last one left has been tried again
+-	resealed := 0    // what of the conversation another account sealed was taken out: its reasoning, then its compaction
++	sent := ""     // the reasoning the last try's model was asked for
++	wentAt := ""   // and the level that went, once translated (wireEffort, #1636)
++	wentTier := "" // the service tier the last try went out at (noteWireTier, #1784)
++	where := ""    // the last try's provider.Where, for the usage
++	again := 0     // times the last one left has been tried again
++	resealed := 0  // what of the conversation another account sealed was taken out: its reasoning, then its compaction
++	// Recovery is request-local: one repaired retry, only on the same candidate.
++	recoveryBudget, _ := r.Context().Value(providerRecoveryKey{}).(*providerRecoveryBudget)
++	if recoveryBudget == nil {
++		recoveryBudget = &providerRecoveryBudget{}
++	}
++	recoveryFor := ""
++	var recoveryBody []byte
+ 	repicked := 0    // times Copilot's Auto was asked again for a model the account is served
+ 	floored := false // the reply's length raised to what the provider takes
+ 	plainFor := ""   // the account and model asked again without effort updates (#617)
+@@ -3629,7 +3636,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
+ 		// asked again, of it or of the next candidate. Only a stream the
+ 		// agent has the headers of already is held, to be told in it
+ 		pass := c.p.PassesErrors()
+-		hw := newHoldWriter(w, kept.sent || !pass && (!last || again < max(lastRetries, rateRetries) || other != nil || autoPicks(c) && repicked < 2 ||
++		hw := newHoldWriter(w, kept.sent || !pass && (hasProviderRecovery(r.Context()) || !last || again < max(lastRetries, rateRetries) || other != nil || autoPicks(c) && repicked < 2 ||
+ 			patience > 0 && rounds < replanRounds && (waitFrom.IsZero() || time.Since(waitFrom) < patience) || wantWhole))
+ 		// a compaction's summary is held to its end, for a cut or an
+ 		// error halfway to go to the next candidate (#2274)
+@@ -3751,7 +3758,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
+ 			}
+ 		}
+ 		// a middleware's onProvider changes what this provider is sent
+-		attemptBody = triedOn(r.Context(), c.p, c.model, attemptBody)
++		recovering := recoveryFor == c.who()+"|"+c.model && recoveryBody != nil
++		if recovering {
++			attemptBody, recoveryBody = recoveryBody, nil
++		} else {
++			attemptBody = triedOn(r.Context(), c.p, c.model, attemptBody)
++		}
++		providerBody := attemptBody
+ 		// the system prompt the user gave this model goes after the
+ 		// agent's own (model_system.go)
+ 		attemptBody = withModelSystem(r, c.p, c.model, from, attemptBody)
+@@ -4333,6 +4346,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
+ 			s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+ 			break
+ 		}
++		if recovering && (call.Status >= 400 || call.Error != "") {
++			recoveryBudget.terminal = true
++			// This repaired attempt is final. Do not reloop, fail over or
++			// strip another history item after a second failure.
++			try.Fail = failForeign
++			watched.attempt(call, try, c.p.ID, sent, hw, capture)
++			s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
++			if !hw.passing {
++				failTo(w, kept, from, max(call.Status, http.StatusBadRequest), call.Error)
++			}
++			break
++		}
+ 		if hw.slow {
+ 			// no first content in the group's FirstToken, and nothing of
+ 			// it sent: the next member is asked, and this one doesn't
+@@ -4388,6 +4413,25 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
+ 			continue
+ 		}
+ 		watched.attempt(call, try, c.p.ID, sent, hw, capture)
++		if !pass && from == provider.Responses && !hw.passing && !hw.calls && !hw.refused && !hw.handedOver && hw.first.first == 0 && !hw.sawThinking() && r.Context().Err() == nil {
++			if !recoveryBudget.used {
++				if failure, ok := recoveryFailure(hw.code(), hw.errBody()); ok {
++					if repaired, handled := providerRecovery(r.Context(), c.p, c.model, providerBody, failure); handled {
++						recoveryBudget.used = true
++						try.Fail = failForeign
++						s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
++						if len(repaired) == 0 {
++							recoveryBudget.terminal = true
++							failTo(w, kept, from, call.Status, call.Error)
++							break
++						}
++						recoveryFor, recoveryBody = c.who()+"|"+c.model, repaired
++						i--
++						continue
++					}
++				}
++			}
++		}
+ 		if autoPicks(c) && repicked < 2 && !hw.passing && hw.code() == http.StatusBadRequest &&
+ 			(provider.CopilotRefusal(hw.errBody()) || wrongEndpoint(hw.code(), hw.errBody())) {
+ 			// Copilot refused the model its Auto picked, and Auto has
+diff --git a/internal/gateway/middleware.go b/internal/gateway/middleware.go
+index 1f6904a..79186a4 100644
+--- a/internal/gateway/middleware.go
++++ b/internal/gateway/middleware.go
+@@ -4,7 +4,9 @@ import (
+ 	"context"
+ 	"net"
+ 	"net/http"
++	"regexp"
+ 	"slices"
++	"strings"
+ 
+ 	"github.com/yetone/magpie/internal/access"
+ 	"github.com/yetone/magpie/internal/gwmw"
+@@ -45,6 +47,15 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provide
+ 	}
+ 	w, body, hooked := gatewayHooks(w, r, from, body)
+ 	defer hooked()
++	s.serveAgentMiddleware(w, r, from, body)
++}
++
++// Agent-requested text compaction shares JS middleware without reentering
++// conversation recording or asynchronous context hooks.
++func (s *Server) serveAgentMiddleware(w http.ResponseWriter, r *http.Request, from provider.Protocol, body []byte) {
++	if _, ok := r.Context().Value(providerRecoveryKey{}).(*providerRecoveryBudget); !ok {
++		r = r.WithContext(context.WithValue(r.Context(), providerRecoveryKey{}, &providerRecoveryBudget{}))
++	}
+ 	agents := gwmw.AgentsWanted(middlewareWanted)
+ 	if len(agents) == 0 {
+ 		s.serve(w, r, from, body)
+@@ -68,6 +79,9 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provide
+ 		if t, ok := run.(gwmw.Accounts); ok {
+ 			runs.accounts = append(runs.accounts, t)
+ 		}
++		if t, ok := run.(gwmw.ProviderRecovery); ok && t.HasProviderRecovery() {
++			runs.recovery = append(runs.recovery, t)
++		}
+ 		var turned *gwmw.Reject
+ 		body, turned = run.Request(body)
+ 		waited()
+@@ -79,7 +93,7 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provide
+ 		w, done = run.Wrap(w)
+ 		defer done()
+ 	}
+-	if len(runs.tried) > 0 || len(runs.accounts) > 0 {
++	if len(runs.tried) > 0 || len(runs.accounts) > 0 || len(runs.recovery) > 0 {
+ 		r = r.WithContext(context.WithValue(r.Context(), triedKey{}, runs))
+ 	}
+ 	s.serve(w, r, from, body)
+@@ -87,12 +101,21 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provide
+ 
+ type triedKey struct{}
+ 
++type providerRecoveryKey struct{}
++
++// A compaction may call serve more than once. Its repair budget and terminal
++// failure belong to the original request, not each internal summary attempt.
++type providerRecoveryBudget struct {
++	used, terminal bool
++}
++
+ // mwRuns are the middleware of an agent's request that are asked again on
+ // each try: tried change its body (onProvider), accounts may pass its
+ // account over (onAccount).
+ type mwRuns struct {
+ 	tried    []gwmw.Tried
+ 	accounts []gwmw.Accounts
++	recovery []gwmw.ProviderRecovery
+ }
+ 
+ // triedOn is body as it goes to model on p, in the agent's API: what each
+@@ -104,13 +127,55 @@ func triedOn(ctx context.Context, p provider.Provider, model string, body []byte
+ 	if len(runs.tried) == 0 {
+ 		return body
+ 	}
+-	to := gwmw.To{ID: p.ID, Name: p.Name, Account: accountAgent(p), Model: model}
++	to := gwmw.To{ID: p.ID, Name: p.Name, Account: accountAgent(p), Model: model, RecoverySupported: true}
+ 	for _, t := range runs.tried {
+ 		body = t.Tried(body, to)
+ 	}
+ 	return body
+ }
+ 
++func hasProviderRecovery(ctx context.Context) bool {
++	runs, _ := ctx.Value(triedKey{}).(mwRuns)
++	return len(runs.recovery) > 0
++}
++
++var recoveryItemID = regexp.MustCompile(`\b(?:rs|msg|fc|ctc|ws|cmp)_[A-Za-z0-9_-]{1,160}\b`)
++
++// Only specific resource/encryption validation failures reach a plugin.
++// Generic 5xx, timeouts, auth, quota and safety refusals are not repairable.
++func recoveryFailure(status int, raw []byte) (gwmw.ProviderFailure, bool) {
++	if status < 400 || status == 401 || status == 403 || status == 429 || status == 408 || status == 504 || len(raw) > 32768 {
++		return gwmw.ProviderFailure{}, false
++	}
++	s := strings.ToLower(string(raw))
++	kind := ""
++	switch {
++	case strings.Contains(s, "created under a different") && strings.Contains(s, "azure openai resource"):
++		kind = "foreign_resource"
++	case strings.Contains(s, "invalid_encrypted_content"),
++		strings.Contains(s, "encrypted content could not be decrypted or parsed"),
++		strings.Contains(s, "encrypted content") && strings.Contains(s, "could not be verified"),
++		strings.Contains(s, "could not decrypt") && strings.Contains(s, "encrypted_content"),
++		strings.Contains(s, "invalid encrypted summary"):
++		kind = "invalid_encrypted_content"
++	}
++	if kind == "" {
++		return gwmw.ProviderFailure{}, false
++	}
++	return gwmw.ProviderFailure{Kind: kind, Status: status, Attempt: 1, OutputStarted: false, ItemID: recoveryItemID.FindString(string(raw))}, true
++}
++
++func providerRecovery(ctx context.Context, p provider.Provider, model string, body []byte, failure gwmw.ProviderFailure) ([]byte, bool) {
++	runs, _ := ctx.Value(triedKey{}).(mwRuns)
++	to := gwmw.To{ID: p.ID, Name: p.Name, Account: accountAgent(p), Model: model, RecoverySupported: true}
++	for _, t := range runs.recovery {
++		if repaired, handled := t.ProviderError(body, to, failure); handled {
++			return repaired, true
++		}
++	}
++	return nil, false
++}
++
+ // accountSkipped asks the request's middleware with onAccount whether the
+ // account p is may be used for this try of model, before anything of the
+ // try is done: by is the middleware that passed it over, "" when none did.
+diff --git a/internal/gwmw/gwmw.go b/internal/gwmw/gwmw.go
+index 32a8e21..443cf0c 100644
+--- a/internal/gwmw/gwmw.go
++++ b/internal/gwmw/gwmw.go
+@@ -61,10 +61,28 @@ type Run interface {
+ 
+ // To is the provider a request is tried on, as a middleware is told it.
+ type To struct {
+-	ID      string `json:"id"`
+-	Name    string `json:"name"`
+-	Account string `json:"account,omitempty"` // the subscription's kind (claude, antigravity, …); empty for a key
+-	Model   string `json:"model"`             // the model asked of it, by its id there
++	ID                string `json:"id"`
++	Name              string `json:"name"`
++	Account           string `json:"account,omitempty"` // the subscription's kind (claude, antigravity, …); empty for a key
++	Model             string `json:"model"`             // the model asked of it, by its id there
++	RecoverySupported bool   `json:"recoverySupported,omitempty"`
++}
++
++// ProviderFailure is host-derived metadata for a rejected request. It carries
++// no raw response body, headers, credentials or request text.
++type ProviderFailure struct {
++	Kind          string `json:"kind"`
++	Status        int    `json:"status"`
++	Attempt       int    `json:"attempt"`
++	OutputStarted bool   `json:"outputStarted"`
++	ItemID        string `json:"itemID,omitempty"`
++}
++
++// ProviderRecovery is an optional request-local recovery hook. handled with a
++// nil body returns the original failure; a body asks for one repaired retry.
++type ProviderRecovery interface {
++	HasProviderRecovery() bool
++	ProviderError(body []byte, to To, failure ProviderFailure) (repaired []byte, handled bool)
+ }
+ 
+ // Tried is a Run that also changes the body each provider the request is
+diff --git a/internal/middleware/middleware.go b/internal/middleware/middleware.go
+index c10cdb5..4ce7cd9 100644
+--- a/internal/middleware/middleware.go
++++ b/internal/middleware/middleware.go
+@@ -47,11 +47,13 @@ type mw struct {
+ 	mod        *moejs.Module
+ 	onReq      moejs.Hook
+ 	onProv     moejs.Hook
++	onProvErr  moejs.Hook
+ 	onAcct     moejs.Hook
+ 	onEv       moejs.Hook
+ 	onResp     moejs.Hook
+ 	hasReq     bool
+ 	hasProv    bool
++	hasProvErr bool
+ 	hasAcct    bool
+ 	hasEv      bool
+ 	hasResp    bool
+@@ -166,7 +168,7 @@ func load(st string) *set {
+ 			continue
+ 		}
+ 		s.list = append(s.list, m)
+-		s.hooked = s.hooked || m.hasReq || m.hasAcct || m.hasProv || m.hasEv || m.hasResp
++		s.hooked = s.hooked || m.hasReq || m.hasAcct || m.hasProv || m.hasProvErr || m.hasEv || m.hasResp
+ 	}
+ 	return s
+ }
+@@ -196,14 +198,15 @@ func compile(e plugin.Entry, file string) (*mw, error) {
+ 	}
+ 	m.onReq, m.hasReq = in.hook("onRequest")
+ 	m.onProv, m.hasProv = in.hook("onProvider")
++	m.onProvErr, m.hasProvErr = in.hook("onProviderError")
+ 	m.onAcct, m.hasAcct = in.hook("onAccount")
+ 	m.onEv, m.hasEv = in.hook("onEvent")
+ 	m.onResp, m.hasResp = in.hook("onResponse")
+ 	if err := m.discover(in); err != nil {
+ 		return nil, err
+ 	}
+-	if !m.hasReq && !m.hasAcct && !m.hasProv && !m.hasEv && !m.hasResp && len(m.strats) == 0 && !m.hasUse {
+-		return nil, errors.New("exports none of onRequest, onAccount, onProvider, onEvent, onResponse, strategies and onUsage")
++	if !m.hasReq && !m.hasAcct && !m.hasProv && !m.hasProvErr && !m.hasEv && !m.hasResp && len(m.strats) == 0 && !m.hasUse {
++		return nil, errors.New("exports none of onRequest, onAccount, onProvider, onProviderError, onEvent, onResponse, strategies and onUsage")
+ 	}
+ 	if names, ok := in.strings("events"); ok {
+ 		m.events = map[string]bool{}
+@@ -455,7 +458,7 @@ func States() map[string]State {
+ 		for _, h := range []struct {
+ 			ok   bool
+ 			name string
+-		}{{m.hasReq, "onRequest"}, {m.hasAcct, "onAccount"}, {m.hasProv, "onProvider"}, {m.hasEv, "onEvent"}, {m.hasResp, "onResponse"}} {
++		}{{m.hasReq, "onRequest"}, {m.hasAcct, "onAccount"}, {m.hasProv, "onProvider"}, {m.hasProvErr, "onProviderError"}, {m.hasEv, "onEvent"}, {m.hasResp, "onResponse"}} {
+ 			if h.ok {
+ 				st.Hooks = append(st.Hooks, h.name)
+ 			}
+diff --git a/internal/middleware/run.go b/internal/middleware/run.go
+index 6ef57b2..96acb43 100644
+--- a/internal/middleware/run.go
++++ b/internal/middleware/run.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"net/http"
++	"reflect"
+ 	"strings"
+ 	"time"
+ 
+@@ -205,6 +206,102 @@ func (r *Run) Tried(body []byte, to gwmw.To) []byte {
+ 	return body
+ }
+ 
++// HasProviderRecovery distinguishes a chain with a recovery hook from one
++// which only observes or transforms ordinary traffic.
++func (r *Run) HasProviderRecovery() bool {
++	if r != nil {
++		for _, m := range r.set.list {
++			if m.hasProvErr {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++// ProviderError accepts the first explicit recovery decision. The gateway
++// owns the retry limit and ensures nothing was delivered or cancelled.
++func (r *Run) ProviderError(body []byte, to gwmw.To, failure gwmw.ProviderFailure) ([]byte, bool) {
++	if !r.HasProviderRecovery() {
++		return nil, false
++	}
++	defer r.letGo()
++	for i, m := range r.set.list {
++		if !m.hasProvErr {
++			continue
++		}
++		in, ctx, err := r.acquire(i)
++		if err != nil {
++			m.fail("onProviderError", err)
++			continue
++		}
++		for _, field := range []struct {
++			name  string
++			value any
++		}{{"provider", to}, {"failure", failure}} {
++			var b []byte
++			var v moejs.Value
++			b, err = json.Marshal(field.value)
++			if err == nil {
++				v, err = in.rt.ParseJSON(b)
++			}
++			if err == nil {
++				err = in.rt.Realm().SetV(ctx, in.rt.Realm().KeyFromGoString(field.name), v)
++			}
++			if err != nil {
++				break
++			}
++		}
++		var out []byte
++		if err == nil {
++			out, err = r.apply(i, m.onProvErr, requestLimit, body, nil)
++		}
++		// A failure marker never leaks into a subsequent ordinary provider try.
++		_ = in.rt.Realm().SetV(ctx, in.rt.Realm().KeyFromGoString("failure"), moejs.Undefined())
++		if err != nil {
++			m.fail("onProviderError", err)
++			continue
++		}
++		if len(out) == 0 {
++			continue
++		}
++		var decision struct {
++			Action string          `json:"action"`
++			Body   json.RawMessage `json:"body"`
++		}
++		if json.Unmarshal(out, &decision) != nil {
++			continue
++		}
++		if decision.Action == "stop" {
++			return nil, true
++		}
++		if decision.Action != "retry" {
++			continue
++		}
++		var original, repaired map[string]any
++		if json.Unmarshal(body, &original) != nil || json.Unmarshal(decision.Body, &repaired) != nil || repaired == nil {
++			m.fail("onProviderError", errors.New("retry requires an object body"))
++			return nil, true
++		}
++		if reflect.DeepEqual(original, repaired) {
++			return nil, true
++		}
++		// Recovery may change history/storage, not model, tools, effort, limits
++		// or any other request settings. Compare semantic JSON, not whitespace.
++		for _, obj := range []map[string]any{original, repaired} {
++			delete(obj, "input")
++			delete(obj, "store")
++			delete(obj, "previous_response_id")
++		}
++		if !reflect.DeepEqual(original, repaired) {
++			m.fail("onProviderError", errors.New("recovery changed fields outside input/store/previous_response_id"))
++			return nil, true
++		}
++		return decision.Body, true
++	}
++	return nil, false
++}
++
+ var errDropped = errors.New("dropped")
+ 
+ // apply calls h on the JSON in data; the JSON it returned, nil for

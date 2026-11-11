@@ -1,7 +1,7 @@
 [
   { "name": "a named provider gets the conversation without its ids and seals, and keeps what it said and did",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "azure-relay/gpt-5.4",
@@ -45,7 +45,7 @@
 
   { "name": "a provider not named gets the request as it came, previous_response_id and all",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "openai", "name": "OpenAI", "model": "gpt-5.4" },
     "request": {
       "model": "openai/gpt-5.4", "store": true,
@@ -67,7 +67,7 @@
 
   { "name": "a group: the member named is stripped, under the group's model name",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "group/gpt-5",
@@ -83,7 +83,7 @@
 
   { "name": "a group: the other member is not",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "openai", "name": "OpenAI", "model": "gpt-5.4" },
     "request": {
       "model": "group/gpt-5",
@@ -92,34 +92,34 @@
 
   { "name": "previousResponse drop takes the field",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "previousResponse": "drop" },
+    "options": { "providers": ["azure-relay"], "mode": "always", "previousResponse": "drop" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "previous_response_id": "resp_abc", "input": "hi" },
     "expect_request": { "model": "m", "store": false, "input": "hi" } },
 
   { "name": "previous_response_id stays by default, since a client that named one may have sent only its new turn",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "previous_response_id": "resp_abc", "input": "hi" } },
 
   { "name": "store is sent as false by default, so magpie sends the whole conversation rather than the new turn under an id",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "input": "hi" },
     "expect_request": { "model": "m", "store": false, "input": "hi" } },
 
   { "name": "store keep leaves it as the agent sent it",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "store": "keep" },
+    "options": { "providers": ["azure-relay"], "mode": "always", "store": "keep" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": true, "input": "hi" },
     "expect_request": { "model": "m", "store": true, "input": "hi" } },
 
   { "name": "a sealed compaction is preserved while ordinary message ids are stripped",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "m", "store": false,
@@ -138,7 +138,7 @@
 
   { "name": "readable text beside a compaction seal does not justify discarding its checkpoint",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "ids": "all" },
+    "options": { "providers": ["azure-relay"], "mode": "always", "ids": "all" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "m", "store": false,
@@ -153,7 +153,7 @@
 
   { "name": "an item_reference is a pointer to the resource's item, so it goes",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "m", "store": false,
@@ -169,14 +169,14 @@
 
   { "name": "itemReferences keep sends a pointer as it is",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "itemReferences": "keep", "ids": false },
+    "options": { "providers": ["azure-relay"], "mode": "always", "itemReferences": "keep", "ids": false },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "input": [{ "type": "item_reference", "id": "msg_1" }] },
     "expect_request": { "model": "m", "store": false, "input": [{ "type": "item_reference", "id": "msg_1" }] } },
 
   { "name": "a sealed content part inside an agent_message goes, and the readable part stays",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "m", "store": false,
@@ -194,7 +194,7 @@
 
   { "name": "an agent_message that was only a seal goes whole, since a message that says nothing is no request any API takes",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": {
       "model": "m", "store": false,
@@ -210,20 +210,20 @@
 
   { "name": "a Chat request is left alone, whatever the provider",
     "ctx": { "protocol": "chat" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "messages": [{ "role": "user", "content": "hi" }], "previous_response_id": "resp_1" } },
 
   { "name": "a rename is followed through aliases",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "aliases": { "azure-old": "azure-relay" } },
+    "options": { "providers": ["azure-relay"], "mode": "always", "aliases": { "azure-old": "azure-relay" } },
     "provider": { "id": "azure-old", "name": "Azure", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
     "expect_request": { "model": "m", "store": false, "input": [] } },
 
   { "name": "ids false keeps message ids while reasoning is still removed",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "ids": false },
+    "options": { "providers": ["azure-relay"], "mode": "always", "ids": false },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [
@@ -235,7 +235,7 @@
 
   { "name": "encrypted false keeps the seals and still drops the ids",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "encrypted": false },
+    "options": { "providers": ["azure-relay"], "mode": "always", "encrypted": false },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
@@ -244,26 +244,26 @@
 
   { "name": "providers as an object of ids does the same, and a false one names nothing",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": { "azure-relay": true, "other": false } },
+    "options": { "providers": { "azure-relay": true, "other": false }, "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "input": [{ "type": "message", "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] },
     "expect_request": { "model": "m", "store": false, "input": [{ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] } },
 
   { "name": "a request with nothing to strip passes as it came, byte for byte",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "input": [{ "type": "message", "role": "user", "content": "hi" }] } },
 
   { "name": "an input written as text is left as text",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "input": "fix the login bug" } },
 
   { "name": "ids true uses the portable whitelist and preserves unknown tool ids",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "ids": true },
+    "options": { "providers": ["azure-relay"], "mode": "always", "ids": true },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [
@@ -278,7 +278,7 @@
 
   { "name": "ids all takes every kind's id",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "ids": "all", "historySearch": "keep" },
+    "options": { "providers": ["azure-relay"], "mode": "always", "ids": "all", "historySearch": "keep" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [{ "type": "web_search_call", "id": "ws_1", "status": "completed" }] },
@@ -287,7 +287,7 @@
 
   { "name": "a message written without a type is one, and its id goes",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [{ "id": "msg_1", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] },
@@ -296,7 +296,7 @@
 
   { "name": "include is never touched: it asks for the reply's reasoning, not the history's seals",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false, "include": ["reasoning.encrypted_content", "message.output_text.logprobs"],
       "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] },
@@ -305,7 +305,7 @@
 
   { "name": "removing reasoning also converts past native searches to portable notes by default",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [
@@ -320,7 +320,7 @@
 
   { "name": "historySearch note turns a past search into a message carrying its own record",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "historySearch": "note" },
+    "options": { "providers": ["azure-relay"], "mode": "always", "historySearch": "note" },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [{ "type": "web_search_call", "id": "ws_1", "status": "completed", "action": { "type": "search", "query": "magpie" } }] },
@@ -330,7 +330,7 @@
 
   { "name": "keepIds leaves the id of a type an upstream needs one for, and strips the rest",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"], "keepIds": ["additional_tools"] },
+    "options": { "providers": ["azure-relay"], "mode": "always", "keepIds": ["additional_tools"] },
     "provider": { "id": "azure-relay", "name": "Azure Relay", "model": "gpt-5.4" },
     "request": { "model": "m", "store": false,
       "input": [
@@ -345,6 +345,6 @@
 
   { "name": "no provider on the hook (a request magpie sends itself) changes nothing",
     "ctx": { "protocol": "responses" },
-    "options": { "providers": ["azure-relay"] },
+    "options": { "providers": ["azure-relay"], "mode": "always" },
     "request": { "model": "m", "input": [{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA-x" }] } }
 ]

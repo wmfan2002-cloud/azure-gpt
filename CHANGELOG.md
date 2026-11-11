@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0 — 2026-11-11
+
+- Default to `mode:"on-error"`: normal requests are unchanged, including
+  reasoning, IDs, native searches, storage settings and effort.
+- Add `onProviderError` for host-confirmed resource/decryption failures.
+  Repair a named reasoning item selectively; retain other reasoning. A
+  named foreign message/call ID can be removed without clearing reasoning.
+- Stop recovery on opaque compaction or unresolved history references.
+- Supply a Magpie source patch for pre-output error detection and one
+  request-local repair retry on the same candidate, with no learned cleanup
+  state carried into later requests. It also covers text compaction.
+- Retain `mode:"always"` as the explicit 0.1.1 behavior. Existing pre-cleaning
+  fixtures request that mode rather than redefining their expectations.
+
+### Host compatibility
+
+Stock Magpie, including reviewed source `5c02be05b`, lacks this new hook.
+On-error mode preserves requests and warns on an unpatched host; automatic
+recovery requires the companion host build. A plugin-only upgrade is not a
+complete deployment of this mode.
+
 ## 0.1.1 — 2026-11-11
 
 - Remove replayed reasoning items whole when encryption cleanup is enabled.

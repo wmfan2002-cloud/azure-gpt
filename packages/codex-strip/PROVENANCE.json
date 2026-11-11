@@ -11,6 +11,8 @@
     }
   },
   "changes": [
+    "0.2.0 defaults to error-triggered repair via a companion Magpie onProviderError interface. Ordinary requests are unchanged; mode:always retains 0.1.1 pre-cleaning. The host patch is based on 5c02be05b87719baaa84d569cbc2930fa5943fdd and includes text compaction.",
+    "The host supplies fixed failure metadata and an optional rejected item ID. A named invalid reasoning item is selectively removed; unrelated reasoning is kept. Opaque compaction and unresolved references return the original failure instead of losing history.",
     "A gateway middleware instead of a local HTTP proxy: no port, no base_url change, and one file with no imports.",
     "PerProvider: it acts in onProvider on the provider ids the options name, so a group, a fallback or a direct request is changed only on the tries that reach one of them.",
     "What it removes is a superset of the proxy's: item ids, every encrypted* field (not only top level ones), a content part of type encrypted_content, and item_reference, which holds nothing but an id on the resource.",

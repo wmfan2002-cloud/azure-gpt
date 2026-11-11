@@ -1,5 +1,17 @@
 # @magpie-community/middleware-codex-strip
 
+## 0.2.0 defaults to error-triggered recovery
+
+Normal requests are unchanged. A host with `onProviderError` support may
+request one repair after an explicit resource/decryption rejection, before
+any output or tool activity. Configure `{"providers":["azure-relay"],"mode":"on-error"}`.
+See [the recovery contract](../../ERROR_RECOVERY.md) and [host patch](../../patches/README.md).
+
+Stock Magpie currently lacks the recovery hook. On-error mode preserves
+requests and reports the missing capability there; it cannot automatically
+retry. The behavior documented below now applies to **`mode:"always"`**, the
+explicit legacy compatibility mode, and to eligible cleanup during recovery.
+
 Codex on a relay that spreads one conversation's turns over several **Azure OpenAI resources**, as [magpie](https://usemagpie.ai) gateway middleware. Azure's Responses API keeps an answer's state on the resource that made it; a relay without session affinity sends later turns to a resource that can't read it, and the turn is refused:
 
 ```
@@ -15,7 +27,7 @@ Install this repository with `magpie plugin add github:wmfan2002-cloud/azure-gpt
 ## Only the providers you name
 
 ```json
-{ "providers": ["azure-relay"] }
+{ "providers": ["azure-relay"], "mode": "always" }
 ```
 
 **`providers`** are magpie provider **ids** — the `azure-relay` of `azure-relay/gpt-5.4`, the id the Providers list shows in `provider/<id>`, never the display name. With no `providers`, the middleware changes nothing.
@@ -33,6 +45,7 @@ A provider renamed in magpie keeps sending the old id for a while: `{"providers"
 | Option | Default | |
 | --- | --- | --- |
 | `providers` | — | The provider ids it acts on: a list, one string, or `{"id": true}`. Empty changes nothing. |
+| `mode` | `"on-error"` | Normal requests untouched. `"always"` explicitly enables the pre-cleaning described below. |
 | `ids` | `true` | Strip IDs from content-bearing items. `true` and omission use the same whitelist; `"all"` includes unknown kinds, `false` keeps IDs. Compaction is always preserved. |
 | `keepIds` | `[]` | Retain IDs on these surviving item types. Does not prevent reasoning or search conversion. |
 | `encrypted` | `true` | Remove reasoning items, keeping readable text as notes; strip other `encrypted*` fields and encrypted content parts. Compaction is preserved. `false` keeps encrypted state. |
@@ -43,7 +56,7 @@ A provider renamed in magpie keeps sending the old id for a while: `{"providers"
 | `aliases` | `{}` | `{"old-id": "new-id"}`. |
 
 ```json
-{ "providers": ["azure-relay"], "ids": true, "encrypted": true, "store": "off" }
+{ "providers": ["azure-relay"], "mode": "always", "ids": true, "encrypted": true, "store": "off" }
 ```
 
 ### Which ids go
@@ -95,7 +108,7 @@ Ported from [codex-strip-proxy](https://github.com/AnnaofArendelle/codex-strip-p
 
 ## 中文使用要点
 
-只需在插件 Options 中填写实际渠道 ID：`{"providers":["azure-relay"]}`。默认整项清理 reasoning，把可读摘要和历史原生搜索转成文本，保留普通消息、工具参数、结果与 `call_id` 配对。`ids: true` 与省略配置均使用白名单；只有 `"all"` 才扩大 ID 清理范围。
+0.2.0 默认仅报错后修复，需要配套 Magpie 恢复接口；正常请求不清理 reasoning。`mode:"always"` 才启用旧的每次清理行为：把可读摘要和历史原生搜索转成文本，保留普通消息、工具参数、结果与 `call_id` 配对。`ids: true` 与省略配置均使用白名单；只有 `"all"` 才扩大 ID 清理范围。
 
 原生加密压缩摘要始终完整保留。如果它属于另一个 Azure 资源，需要回到原资源续写，或恢复原历史后生成文本摘要。插件不会通过删除摘要来掩盖错误。Magpie 部分内部压缩请求需要应用仓库附带的宿主补丁才能经过插件；安装插件本身不会修改 Magpie 主程序。
 

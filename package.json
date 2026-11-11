@@ -1,8 +1,8 @@
 {
   "name": "@magpie-community/middleware-codex-strip",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
-  "description": "Portable Codex history for selected Azure relay providers: remove replayed reasoning, retain readable records and preserve native compaction checkpoints",
+  "description": "Error-triggered Azure Responses recovery for Magpie: preserve normal reasoning and repair rejected requests once",
   "type": "module",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/wmfan2002-cloud/azure-gpt.git" },
