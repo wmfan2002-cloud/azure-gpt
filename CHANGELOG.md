@@ -1,15 +1,19 @@
 # Changelog
 
+## 0.3.3 — 2026-11-12
+
+- Keep upstream URLs, deployment names, model metadata and extra client
+  headers entirely user-configured. Remove channel-specific header defaults
+  and bundled deployment configuration.
+- Focus the public documentation on installation, connection options and
+  error-triggered Azure Responses history recovery.
+- Verify model discovery and HTTP/SSE recovery with native Azure `/openai/v1`
+  and relay API prefixes, arbitrary deployment names and per-account URLs.
+
 ## 0.3.2 — 2026-11-12
 
-- Send AgentRouter's required `originator: codex_cli_rs` header on model
-  discovery and requests. The same key worked on a custom channel but model
-  discovery failed with `401 unauthorized_client_error` without this header.
-  Explicit headers override this host-specific default.
 - Recognize resource errors whose relay masks `Azure` as `***`; these actual
   HTTP 400 errors previously passed through without recovery.
-- Add a manual AgentRouter model configuration matching the inspected
-  channel's limits and reasoning levels, since its `/models` lists IDs only.
 - Cover provider setup and HTTP/SSE recovery in the root test command,
   including intact first requests, tool pairs, output-start boundaries,
   protected checkpoints and the single retry limit.

@@ -8,6 +8,7 @@ const NPM = "@ai-sdk/openai"
 export default async function azureGPT(input, options = {}) {
   const log = (level, message) => input.client.app.log({ body: { service: ID, level, message } }).catch(() => {})
   const configuredBase = options.baseURL ? baseURL(options.baseURL) : ""
+  const configuredHeaders = Object.fromEntries(new Headers(options.headers ?? {}))
   const configuredModels = options.models && typeof options.models === "object" && !Array.isArray(options.models)
     ? options.models : null
   return {
@@ -23,20 +24,20 @@ export default async function azureGPT(input, options = {}) {
       options: [{ key: "recovery", label: "Repair Azure history errors", labels: { zh: "遇到 Azure 历史错误时修复" },
         description: "Preserve normal requests; repair and retry only a rejected request, before output starts.",
         descriptions: { zh: "正常请求保留完整推理；仅在指定报错且尚未输出时修复重试。" }, default: true }],
-      methods: [{ type: "api", label: "Azure relay API key", labels: { zh: "Azure 中转 API Key" },
+      methods: [{ type: "api", label: "Azure Responses API key", labels: { zh: "Azure Responses API Key" },
         // Magpie treats prompts + authorize as a method that asks for its
         // own key. This prompt asks only for the URL: omit authorize so
         // Magpie asks for the key next and saves the URL in auth.metadata.
-        prompts: configuredBase ? [] : [{ type: "text", key: "baseURL", message: "Upstream relay API base URL (including /v1)",
-          messages: { zh: "上游中转 API 地址（包含 /v1，不是 Magpie 地址）" }, placeholder: "https://relay.example.com/v1",
+        prompts: configuredBase ? [] : [{ type: "text", key: "baseURL", message: "Responses API base URL (including its API path)",
+          messages: { zh: "上游 Responses API 基础地址（包含 API 路径）" }, placeholder: "https://relay.example.com/v1",
           validate(value) { try { baseURL(value) } catch (error) { return error.message } } }],
       }],
       async loader(getAuth) {
         const auth = await getAuth()
-        if (auth?.type !== "api" || !auth.key) throw new Error("Sign in to Azure GPT with your relay API key.")
+        if (auth?.type !== "api" || !auth.key) throw new Error("Sign in to Azure GPT with your upstream API key.")
         const base = configuredBase || baseURL(auth.metadata?.baseURL)
         return { baseURL: base, apiKey: auth.key,
-          headers: relayHeaders(base, options.headers),
+          headers: { ...configuredHeaders },
           fetch: createRecoveryFetch(globalThis.fetch, {
             enabled: () => input.magpie?.option(ID, "recovery") !== false,
             log,
@@ -52,7 +53,7 @@ export default async function azureGPT(input, options = {}) {
         }]))
         if (context.auth?.type !== "api") return provider.models
         const base = configuredBase || baseURL(context.auth.metadata?.baseURL)
-        const headers = new Headers(relayHeaders(base, options.headers))
+        const headers = new Headers(configuredHeaders)
         headers.set("authorization", "Bearer " + context.auth.key)
         const response = await fetch(base + "/models", { signal: context.signal,
           headers })
@@ -65,15 +66,6 @@ export default async function azureGPT(input, options = {}) {
       },
     },
   }
-}
-
-function relayHeaders(base, configured) {
-  // AgentRouter rejects discovery without a supported client identity, even
-  // with the same key that serves Codex. Match its working Codex channel for
-  // discovery and transport; explicit user headers win regardless of case.
-  const headers = new Headers(new URL(base).hostname === "agentrouter.org" ? { originator: "codex_cli_rs" } : {})
-  for (const [key, value] of new Headers(configured ?? {})) headers.set(key, value)
-  return Object.fromEntries(headers)
 }
 
 function baseURL(value) {

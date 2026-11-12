@@ -1,4 +1,4 @@
-# 0.3.0 recovery transport
+# Recovery transport
 
 The root package uses Magpie's existing provider-plugin API:
 `auth.loader → {baseURL, apiKey, headers, fetch}`. Models declare
@@ -27,9 +27,9 @@ quotes those words is not an error. Authentication, quota, timeout, generic
 server and safety failures do not trigger history repair.
 
 Resource errors are also recognized when a relay masks Azure as `***`, as
-in `created under a different *** OpenAI resource`. AgentRouter requires
-`originator: codex_cli_rs`; the provider supplies it for that host on both
-model discovery and transport, with configured headers taking precedence.
+in `created under a different *** OpenAI resource`. Recognition depends on
+the error content, not the upstream hostname or model ID. The provider uses
+the user's configured headers for discovery and transport.
 
 The plugin handles HTTP 200 containing `response.failed` as well as ordinary
 HTTP validation errors. Error inspection is bounded to 32 KiB. Oversized or

@@ -1,6 +1,6 @@
 {
   "name": "@magpie-community/azure-gpt",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Azure Responses provider for stock Magpie: retain normal reasoning and repair only rejected requests",
   "type": "module",

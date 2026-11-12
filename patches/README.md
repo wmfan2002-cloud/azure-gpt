@@ -25,8 +25,7 @@ history is local to that attempt. The host accepts changes only to input
 and storage/reference fields. See [the contract](../ERROR_RECOVERY.md).
 
 The plugin installer does not replace Magpie. Build/check the host separately
-before switching a gateway used by active conversations. Exact local build
-results are recorded in `BUILD-STATUS.md` alongside this document.
+before switching a gateway used by active conversations.
 
 ## 0.1.1: historical compaction-only patch
 

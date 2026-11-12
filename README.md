@@ -1,12 +1,17 @@
 # Azure GPT — recover rejected history without changing Magpie
 
 An **OpenCode-compatible provider plugin for official Magpie**. It sends native
-Responses requests to your existing Azure relay, preserves normal reasoning,
+Responses requests to your Azure API or relay, preserves normal reasoning,
 and repairs a request only after a specific cross-resource or decryption error.
 No Magpie source patch or separate proxy service is required.
 
+The upstream URL, model IDs, model limits and client headers come from your
+sign-in, upstream model discovery or plugin options. Recovery uses the
+Responses protocol and error content, independently of the upstream domain
+or deployment name.
+
 ```text
-Codex → official Magpie → Azure GPT provider plugin → your Azure relay
+Codex → official Magpie → Azure GPT provider plugin → your Responses API
 ```
 
 ## Install and connect
@@ -16,60 +21,37 @@ magpie plugin add github:wmfan2002-cloud/azure-gpt#main
 magpie plugin login azure-gpt
 ```
 
-The sign-in first asks for your **upstream relay's Responses base URL**, such
-as `https://relay.example.com/v1`. Click Next, then enter the relay's API key
+The sign-in first asks for your **Responses API base URL**, such as
+`https://your-resource.openai.azure.com/openai/v1` or
+`https://relay.example.com/v1`. Click Next, then enter the upstream's API key
 in Magpie's normal key field. Use the original provider's API base, not your
 Magpie server's address or the full `/responses` endpoint. The key and URL are
 kept by Magpie's normal plugin sign-in store. The plugin never reads another
-channel's keys. The relay's `/models` endpoint supplies the model list.
-
-Installing from GitHub on another computer does not copy your local Magpie
-options or sign-ins. A fresh server therefore asks for the URL even when your
-local installation already has it configured.
-
-**Upgrading from 0.3.0:** update the plugin, close the old sign-in form, and
-start sign-in again. Version 0.3.1 fixes the first-install flow that skipped
-the API-key field after a valid URL and failed with "sign-in gave no key".
-
-**AgentRouter:** version 0.3.2 includes its required
-`originator: codex_cli_rs` header for model discovery and requests. Existing
-0.3.1 installations can also set this header in plugin options. The same
-key can otherwise work on a custom Codex channel while `/models` fails with
-`401 unauthorized_client_error` on the plugin.
-
-AgentRouter's inspected `/models` response contains model IDs but omits
-reasoning capabilities, levels and token limits. Configure those explicitly
-to retain the original channel's settings. [configs/agentrouter.json](configs/agentrouter.json)
-contains the inspected channel's two models, 512000 context, 128000 output,
-image input and six reasoning levels. Adjust the limits to your own channel,
-then apply it from this checkout:
-
-```sh
-magpie plugin options azure-gpt "$(cat configs/agentrouter.json)"
-```
+channel's keys. The upstream's `/models` endpoint supplies the model list.
 
 In Magpie, select **Azure GPT · 按报错修复** as the provider for Codex, then
 choose the original model and reasoning level. This is a new provider: merely
-installing it does not intercept an existing `agent/...` channel.
+installing it does not intercept another provider's requests.
 
 To install local unpublished changes:
 
 ```sh
 magpie plugin off azure-gpt
 magpie plugin add /path/to/azure-gpt
-magpie plugin options /path/to/azure-gpt "$(cat /path/to/azure-gpt/configs/agentrouter.json)"
 ```
 
 Magpie registers a local path separately from a GitHub package. Turn the
 GitHub installation off first so the two copies do not compete to serve
 `azure-gpt`. The local installation uses the existing provider sign-in.
 
-### A relay with a manual model list
+### Connection and model options
 
 Use **Plugins → Installed → Options** to set non-secret connection details and
 model metadata. Keep the upstream's actual limits and supported reasoning
 levels. A `models` object disables `/models` discovery; the supplied list is
-used as written. `headers` can carry required non-secret client headers.
+used as written. If discovery supplies only model IDs, configure the missing
+metadata using your upstream's supported settings. `headers` carries the
+client headers you configure, on both discovery and requests.
 
 ```json
 {
@@ -139,7 +121,8 @@ approach and are not used by 0.3.0.
 这是渠道插件，不再是依赖主程序补丁的请求中间件。安装后在 Magpie 中为
 **Azure GPT · 按报错修复** 登录原来的中转 API Key，再给 Codex 选用该渠道。
 新服务器首次登录先填原上游的 API 基础地址（例如 `https://中转域名/v1`），
-点击“下一步”后再输入 API Key。本机的插件配置不会随 Git push 自动带到服务器。
+点击“下一步”后再输入 API Key。上游地址、模型和额外请求头由用户自行配置，
+修复逻辑依据 Responses 协议与报错内容工作，不绑定特定渠道或模型。
 正常请求保留完整 reasoning；遇到对应错误且尚未输出时才修复并重试一次。
 不会把整个会话切成永久清理模式，也不会改本地对话历史。
 
@@ -159,6 +142,6 @@ node --check packages/azure-provider/index.js
 node --check packages/azure-provider/transport.js
 ```
 
-`bun test packages` covers the provider, HTTP/SSE recovery transport and legacy
-middleware. Current build/load evidence and deployment state are in
-[BUILD-STATUS.md](patches/BUILD-STATUS.md).
+`bun test packages` covers provider setup, account-specific URLs, custom
+headers and model metadata, HTTP/SSE recovery across different API base
+paths, and the legacy middleware.
