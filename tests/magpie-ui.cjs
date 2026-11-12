@@ -1,4 +1,4 @@
-// Real Magpie + a temporary profile + a simulated upstream. No real keys.
+// Actual Magpie: native URL/key sign-in and its provider Advanced editor.
 const assert = require("node:assert/strict")
 const fs = require("node:fs/promises")
 const os = require("node:os")
@@ -12,164 +12,140 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 const freePort = async () => { const server = http.createServer(); const port = await listen(server); await new Promise((r) => server.close(r)); return port }
 
 async function run(engine, lang) {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "azure-ui-")), config = path.join(temp, "config/magpie")
-  const seen = [], errors = []
-  let releaseHeld, markHeld
-  const heldStarted = new Promise((resolve) => { markHeld = resolve })
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "azure-native-ui-")), config = path.join(temp, "config/magpie")
+  const calls = [], errors = []
   const upstream = http.createServer(async (req, res) => {
     const chunks = []; for await (const chunk of req) chunks.push(chunk)
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined
-    seen.push({ method: req.method, url: req.url, body, headers: req.headers })
-    res.setHeader("Content-Type", "application/json")
+    calls.push({ url: req.url, body, headers: req.headers })
+    res.setHeader("content-type", "application/json")
+    if (req.headers.originator !== "codex_cli_rs") { res.statusCode = 401; return res.end(JSON.stringify({ error: "unauthorized_client_error" })) }
     if (req.method === "GET") {
-      if (req.headers["api-key"] === "reject-model-key") { res.statusCode = 401; return res.end(JSON.stringify({ error: "model discovery refused" })) }
-      // Reproduce a first install whose discovery finishes after key storage.
-      await sleep(Number(process.env.MODEL_LIST_DELAY ?? 1200))
-      return res.end(JSON.stringify({ data: [{ id: "test-deployment", reasoning: true, reasoning_levels: ["medium"], context_window: 64000, max_output_tokens: 8192, tool_call: true }] }))
+      await sleep(1200)
+      return res.end(JSON.stringify({ data: [{ id: "test-deployment", reasoning: true, reasoning_levels: ["medium"], context_window: 64000, max_output_tokens: 8192 }] }))
     }
-    if (body?.input?.some((item) => item.type === "reasoning")) {
+    if (body.input?.some((item) => item.type === "reasoning")) {
       res.statusCode = 400
       return res.end(JSON.stringify({ error: { code: "invalid_encrypted_content", message: "Encrypted content could not be decrypted or parsed." } }))
     }
-    if (JSON.stringify(body?.input).includes("hold-for-settings")) await new Promise((resolve) => { releaseHeld = resolve; markHeld() })
-    res.end(JSON.stringify({ id: "resp_ok", object: "response", status: "completed", model: body.model, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "repaired", annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }))
+    res.end(JSON.stringify({ id: "resp_ok", object: "response", status: "completed", model: body.model,
+      output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "ok", annotations: [] }] }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }))
   })
-  const upstreamPort = await listen(upstream), gatewayPort = await freePort(), webPort = await freePort(), uiPort = await freePort()
-  const base = `http://127.0.0.1:${webPort}`, upstreamBase = `http://127.0.0.1:${upstreamPort}`
-  await fs.mkdir(config, { recursive: true }); await fs.mkdir(path.join(temp, "home"))
-  await fs.writeFile(path.join(config, "plugins.json"), JSON.stringify({ plugins: [{ spec: root, options: { uiPort, preserved: { keep: true } } }] }))
+  const upstreamPort = await listen(upstream), gatewayPort = await freePort(), webPort = await freePort()
+  const base = `http://127.0.0.1:${webPort}`, gateway = `http://127.0.0.1:${gatewayPort}`, apiBase = `http://127.0.0.1:${upstreamPort}/openai/v1`
+  await fs.mkdir(config, { recursive: true })
+  await fs.writeFile(path.join(config, "plugins.json"), JSON.stringify({ plugins: [{ spec: root, options: {} }] }))
   await fs.writeFile(path.join(config, "settings.json"), JSON.stringify({ lang, autoRestart: false, updateEvery: 0, codexAgentsV1: false }))
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("MAGPIE_")))
-  const env = { ...inherited, ...(process.env.MAGPIE_BUN ? { MAGPIE_BUN: process.env.MAGPIE_BUN } : {}), HOME: path.join(temp, "home"), XDG_CONFIG_HOME: path.join(temp, "config"), XDG_CACHE_HOME: path.join(temp, "cache"), XDG_STATE_HOME: path.join(temp, "state"), MAGPIE_ADDR: `127.0.0.1:${gatewayPort}`, MAGPIE_WEB_KEY: "test-web-access-key" }
-  const processHandle = spawn(process.env.MAGPIE_BIN || "magpie", ["serve", `--web=127.0.0.1:${webPort}`], { env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => ["PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA"].includes(key)))
+  const env = { ...inherited, ...(process.env.MAGPIE_BUN ? { MAGPIE_BUN: process.env.MAGPIE_BUN } : {}),
+    HOME: path.join(temp, "home"), XDG_CONFIG_HOME: path.join(temp, "config"), XDG_CACHE_HOME: path.join(temp, "cache"), XDG_STATE_HOME: path.join(temp, "state"),
+    MAGPIE_ADDR: `127.0.0.1:${gatewayPort}`, MAGPIE_WEB_KEY: "test-web-access-key" }
+  const child = spawn(process.env.MAGPIE_BIN || "magpie", ["serve", `--web=127.0.0.1:${webPort}`], { env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
   let logs = "", browser, page
-  const network = []
-  processHandle.stdout.on("data", (chunk) => { logs += chunk }); processHandle.stderr.on("data", (chunk) => { logs += chunk })
+  child.stdout.on("data", (chunk) => { logs += chunk }); child.stderr.on("data", (chunk) => { logs += chunk })
   try {
-    let signIn
+    let login
+    for (let n = 0; n < 100; n++) { try { login = await fetch(base + "/?k=test-web-access-key", { redirect: "manual" }); break } catch { await sleep(100) } }
+    assert(login, "Magpie web started")
+    const cookie = login.headers.get("set-cookie").split(";")[0]
+    await fetch(base + "/api/whatsnew/seen", { method: "POST", headers: { cookie } })
+    const get = async (route) => { const response = await fetch(base + route, { headers: { cookie } }); assert.equal(response.status, 200); return response.json() }
     for (let n = 0; n < 100; n++) {
-      try { signIn = await fetch(base + "/?k=test-web-access-key", { redirect: "manual" }); break } catch { await sleep(100) }
+      await get("/api/providers?wait=1")
+      const catalog = JSON.parse(await fs.readFile(path.join(config, "plugin-providers.json"), "utf8").catch(() => "[]"))
+      if (catalog.some((provider) => provider.id === "azure-gpt")) break
+      await sleep(100)
     }
-    assert(signIn, "Magpie web started")
-    const cookie = signIn.headers.get("set-cookie").split(";")[0]
-    const notes = await fetch(base + "/api/whatsnew/seen", { method: "POST", headers: { cookie } })
-    assert.equal(notes.status, 204)
-    const get = async (route) => { const r = await fetch(base + route, { headers: { cookie } }); assert.equal(r.status, 200); return r.json() }
-    const entry = (await get("/api/plugin-pages")).find((p) => p.spec === root)
-    assert(entry, "settings page registered")
+    assert(!(await get("/api/plugin-pages")).some((entry) => entry.spec === root), "the plugin adds no separate settings page")
     const executablePath = engine === "webkit" ? process.env.WEBKIT_EXECUTABLE : process.env.CHROMIUM_EXECUTABLE
     browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true, ...(executablePath ? { executablePath } : {}) })
-    const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, locale: lang === "zh" ? "zh-CN" : "en-US" })
+    const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, reducedMotion: "reduce", locale: lang === "zh" ? "zh-CN" : "en-US" })
     page = await context.newPage(); page.on("pageerror", (error) => errors.push(error.message)); page.setDefaultTimeout(20000)
-    page.on("response", (response) => { if (response.url().includes("/api/accounts") || response.url().includes("plugin-pages/options")) network.push(`${response.status()} ${response.request().method()} ${response.url()}`) })
-    await page.goto(base + "/?k=test-web-access-key")
-    await page.locator(`#nav button[data-view="${entry.key}"]`).click()
-    const frame = page.frameLocator("iframe.plugin-frame")
-    await frame.locator("#provider-name").waitFor()
-    assert.equal(await frame.locator("#provider-name").inputValue(), "Azure GPT")
-    await frame.locator("#provider-name").fill("My Azure")
-    await frame.locator("#account-name").fill("Work")
-    await frame.locator("#add-url").fill(upstreamBase + "/openai/v1/")
-    await frame.locator("#add-key").fill("fake-private-key-one")
-    await frame.locator("#add-extra summary").click()
-    await frame.locator('#add-extra input').nth(0).fill("api-key")
-    await frame.locator('#add-extra input').nth(1).fill("test-version")
-    await frame.locator("#add-form [data-save]").click()
-    await frame.locator("#connections .connection").waitFor()
-    await frame.locator("#add-form [data-save]:enabled").waitFor()
-    await frame.locator("#status[data-error=false]").waitFor()
-    assert.equal(await frame.locator("#add-key").inputValue(), "")
-    const saved = JSON.parse(await fs.readFile(path.join(config, "plugins.json")))
-    assert.equal(saved.plugins[0].options.name, "My Azure")
-    assert.equal(saved.plugins[0].options.preserved.keep, true)
-    assert(!JSON.stringify(saved).includes("fake-private-key-one"), "API key is outside package options")
-    let auth = JSON.parse(await fs.readFile(path.join(config, "plugin-auth.json")))
-    const account = Object.keys(auth)[0]
-    assert.equal(auth[account].key, "fake-private-key-one")
-    assert.equal(auth[account].accountId, "Work")
-    const first = await fetch(`http://127.0.0.1:${gatewayPort}/v1/responses`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "azure-gpt/test-deployment", stream: false, input: [{ role: "user", content: "first request after adding" }] }) })
-    assert.equal(first.status, 200, await first.text())
-    seen.length = 0
-    const connection = frame.locator("#connections .connection").first()
-    await connection.locator('input[type=url]').first().fill(upstreamBase + "/changed/v1")
-    await connection.locator('[data-save]').click()
-    await frame.locator("#status[data-error=false]").waitFor()
-    await connection.locator('input[type=password]').fill("fake-private-key-two")
-    await connection.locator('[data-save]').click()
-    for (let n = 0; n < 100; n++) { auth = JSON.parse(await fs.readFile(path.join(config, "plugin-auth.json"))); if (auth[account].key === "fake-private-key-two") break; await sleep(100) }
-    assert.equal(auth[account].key, "fake-private-key-two")
-    assert.equal(auth[account].accountId, "Work")
-    await frame.locator("#manual").click()
-    await frame.locator("#models-form [data-save]").click()
-    await frame.locator("#status[data-error=true]").waitFor()
-    assert((await frame.locator("#status").textContent()).includes(lang === "zh" ? "至少添加一个" : "at least one"))
-    await frame.locator("#add-model").click()
-    const model = frame.locator("#model-rows .model").first(), inputs = model.locator(".grid input")
-    await inputs.nth(0).fill("test-deployment"); await inputs.nth(1).fill("Test deployment")
-    await inputs.nth(2).fill("64000"); await inputs.nth(3).fill("8192"); await inputs.nth(4).fill("medium")
-    await model.locator('input[type=checkbox]').nth(0).check()
-    await frame.locator("#models-form [data-save]").click()
-    await frame.locator("#status[data-error=false]").waitFor()
-    const models = (await fetch(`http://127.0.0.1:${gatewayPort}/v1/models`).then((r) => r.json())).data
-    assert(models.some((m) => m.id === "azure-gpt/test-deployment"), "new SDK account is offered by Magpie")
-    const body = { model: "azure-gpt/test-deployment", stream: false, store: false, reasoning: { effort: "medium" }, input: [{ role: "user", content: "continue" }, { type: "reasoning", id: "rs_previous", summary: [], encrypted_content: "old-seal" }] }
-    const response = await fetch(`http://127.0.0.1:${gatewayPort}/v1/responses`, { method: "POST", headers: { "content-type": "application/json", "user-agent": "codex_cli_rs/0.167.2" }, body: JSON.stringify(body) })
-    const answer = await response.json(); assert.equal(response.status, 200, JSON.stringify(answer))
-    const attempts = seen.filter((record) => record.method === "POST")
+    await page.goto(base + "/?k=test-web-access-key&view=providers")
+    // Magpie opens Add your first provider itself in an empty profile.
+    await page.locator('#addSheet .tile[data-pick="Azure GPT"]').click()
+    const signing = page.locator("#addSheet .signing")
+    await signing.locator('input:not([type=password])').first().fill(apiBase)
+    await signing.locator('input:not([type=password])').first().press("Enter")
+    await signing.locator('input[type=password]').fill("fake-native-ui-key")
+    await signing.getByRole("button", { name: lang === "zh" ? "登录" : "Sign in", exact: true }).click()
+    const editor = page.locator("#modal .editor")
+    await editor.waitFor()
+    let model
+    for (let n = 0; n < 100; n++) {
+      model = (await fetch(gateway + "/v1/models").then((response) => response.json())).data?.find((row) => row.id === "azure-gpt/test-deployment")
+      if (model?.native_endpoints?.includes("/v1/responses")) break
+      await sleep(100)
+    }
+    assert(model?.native_endpoints?.includes("/v1/responses"), "discovery registers the actual Responses endpoint")
+    const advanced = editor.locator("details.advanced")
+    if (!await advanced.evaluate((element) => element.open)) await advanced.locator(":scope > summary").click()
+    for (const [selector, value] of [["input.contexts", "test-deployment=128k"], ["input.outputs", "4096"], ["input.compacts", "48000"], ["input.concurrency", "2"], ["input.max-accounts", "2"], ["input.rpm", "120"], ["input.queue-limit", "4"], ["input.queue-wait", "30"], ["input.price-rate", "0.8"]]) {
+      await advanced.locator(selector).fill(value)
+    }
+    assert.equal(await advanced.locator(".proxy-url").count(), 1, "the native proxy editor is available")
+    assert.equal(await editor.locator('.plugin-option[data-key="recovery"]').count(), 1)
+    assert.equal(await editor.locator('.plugin-option[data-key="codex_headers"]').count(), 1)
+    await editor.locator(".bar").getByRole("button", { name: lang === "zh" ? "保存" : "Save", exact: true }).click()
+    await editor.waitFor({ state: "hidden" })
+    const saved = JSON.parse(await fs.readFile(path.join(config, "providers.json"), "utf8")).providers.find((provider) => provider.id === "azure-gpt")
+    assert.equal(saved.contexts["test-deployment"], 128000)
+    assert.equal(saved.maxConcurrency, 2)
+    assert.equal(saved.maxAccounts, 2)
+    assert.equal(saved.maxRPM, 120)
+    assert.equal(saved.queueLimit, 4)
+    assert.equal(saved.queueWait, 30)
+    assert.equal(saved.priceRate, 0.8)
+    let published
+    for (let n = 0; n < 100; n++) {
+      published = (await fetch(gateway + "/v1/models").then((response) => response.json())).data.find((row) => row.id === "azure-gpt/test-deployment")
+      if (published.context_window === 128000 && published.max_output_tokens === 4096) break
+      await sleep(100)
+    }
+    assert.equal(published.context_window, 128000)
+    assert.equal(published.max_output_tokens, 4096)
+    const state = await get("/api/providers")
+    const provider = state.providers.find((row) => row.id === "azure-gpt")
+    assert.equal(provider.compacts["*"], 48000)
+    assert.equal(provider.outputs["*"], 4096)
+    calls.length = 0
+    const body = { model: "azure-gpt/test-deployment", stream: false, store: false, reasoning: { effort: "medium" }, input: [{ role: "user", content: "continue" }, { type: "reasoning", id: "rs_old", summary: [], encrypted_content: "old-seal" }] }
+    const response = await fetch(gateway + "/v1/responses", { method: "POST", headers: { "content-type": "application/json", "user-agent": "codex_cli_rs/0.167.2" }, body: JSON.stringify(body) })
+    assert.equal(response.status, 200, await response.text())
+    const attempts = calls.filter((call) => call.body)
     assert.equal(attempts.length, 2)
-    assert(attempts.every((record) => record.url === "/changed/v1/responses?api-version=test-version"))
-    assert(attempts.every((record) => record.headers["api-key"] === "fake-private-key-two" && !record.headers.authorization))
+    assert(attempts.every((call) => call.headers.authorization === "Bearer fake-native-ui-key" && call.headers.originator === "codex_cli_rs"))
     assert(attempts[0].body.input.some((item) => item.type === "reasoning"))
     assert(!attempts[1].body.input.some((item) => item.type === "reasoning"))
-    const heldResponse = fetch(`http://127.0.0.1:${gatewayPort}/v1/responses`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, input: [{ role: "user", content: "hold-for-settings" }] }) })
-    await Promise.race([heldStarted, sleep(10000).then(() => { throw new Error("The held request did not reach the upstream") })])
-    await frame.locator("#provider-name").fill("Renamed Azure")
-    await frame.locator("#provider-form [data-save]").click()
-    await frame.locator("#status[data-error=false]").waitFor()
-    await frame.locator("#refresh").click()
-    await frame.locator("#connections .connection").waitFor()
-    const names = await frame.locator("main").evaluate(() => magpie.read("providers:list"))
-    assert(names.some((provider) => provider.id === "azure-gpt" && provider.name.startsWith("Renamed Azure")), "provider rename reaches Magpie while the previous host is serving a request")
-    releaseHeld()
-    assert.equal((await heldResponse).status, 200, "settings host transfer preserves the running model request")
+    assert(attempts.every((call) => call.body.reasoning.effort === "medium"))
     await page.setViewportSize({ width: 420, height: 900 })
-    assert(await frame.locator("main").evaluate((el) => el.scrollWidth <= document.documentElement.clientWidth), "mobile layout fits")
-    if (process.env.UI_SCREENSHOT) await page.screenshot({ path: process.env.UI_SCREENSHOT, fullPage: true })
-    await frame.locator("#discovery").click()
-    await frame.locator("#models-form [data-save]").click()
-    await frame.locator("#status[data-error=false]").waitFor()
-    await frame.locator("#account-name").fill("Discovery refused")
-    await frame.locator("#add-key").fill("reject-model-key")
-    await frame.locator("#add-form [data-save]").click()
-    await frame.locator("#add-form [data-save]:enabled").waitFor()
-    await frame.locator("#status[data-error=true]").waitFor()
-    assert((await frame.locator("#status").textContent()).includes("HTTP 401"), "discovery failures explain why the saved account is not ready")
-    assert.equal(await frame.locator("#add-key").inputValue(), "")
+    await page.locator(".row.provider", { hasText: "Azure GPT" }).click()
+    await editor.waitFor()
+    await page.waitForFunction(() => {
+      const modal = document.getElementById("modal")
+      return !modal.hidden && !modal.classList.contains("out") && Number(getComputedStyle(modal.firstElementChild).opacity) > 0.99
+    })
+    const reopened = editor.locator("details.advanced")
+    if (!await reopened.evaluate((element) => element.open)) await reopened.locator(":scope > summary").click()
+    await editor.locator("input.outputs").waitFor()
+    assert.equal(await editor.locator("input.outputs").inputValue(), "4096")
+    assert.equal(await editor.locator("input.contexts").inputValue(), "test-deployment=128k")
+    if (process.env.UI_SCREENSHOT) await page.screenshot({ path: process.env.UI_SCREENSHOT, fullPage: true, animations: "disabled" })
     assert.equal(errors.length, 0, errors.join("\n"))
-    console.log(`PASS ${engine} ${lang}: first discovered request, discovery errors, add and rename, account URL/key editing, model form validation, preserved options, authenticated recovery, host transfer during a request, narrow layout`)
+    console.log(`PASS ${engine} ${lang}: native URL/key form, real endpoint, Advanced settings saved and published, authenticated recovery, settings retained on reopening`)
   } catch (error) {
-    if (page) for (const frame of page.frames()) {
-      const status = await frame.locator("#status").textContent().catch(() => "")
-      console.error("Frame:", frame.url(), "Settings page:", status)
-    }
-    if (page) await page.screenshot({ path: "/tmp/azure-gpt-ui-failure.png", fullPage: true }).catch(() => {})
-    console.error("Settings requests:", network)
-    console.error("Saved options:", await fs.readFile(path.join(config, "plugins.json"), "utf8"))
-    console.error("Saved accounts:", Object.keys(JSON.parse(await fs.readFile(path.join(config, "plugin-auth.json"), "utf8").catch(() => "{}"))))
-    console.error("Upstream requests:", seen.map(({ method, url }) => ({ method, url })))
-    const catalog = JSON.parse(await fs.readFile(path.join(config, "plugin-providers.json"), "utf8").catch(() => "[]"))
-    console.error("Plugin catalog:", catalog.map(({ id, fellBack, listError, models }) => ({ id, fellBack, listError, models: models?.map(({ id, npm }) => ({ id, npm })) })))
+    if (page) await page.screenshot({ path: "/tmp/azure-gpt-native-ui-failure.png", fullPage: true }).catch(() => {})
     console.error("Browser errors:", errors)
     console.error(logs.slice(-4000)); throw error
   } finally {
-    releaseHeld?.()
     await browser?.close()
-    try { process.kill(-processHandle.pid, "SIGTERM") } catch {}
-    await Promise.race([new Promise((resolve) => processHandle.once("exit", resolve)), sleep(3000)])
-    try { process.kill(-processHandle.pid, "SIGKILL") } catch {}
+    try { process.kill(-child.pid, "SIGTERM") } catch {}
+    await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(1000)])
+    try { process.kill(-child.pid, "SIGKILL") } catch {}
     await new Promise((resolve) => upstream.close(resolve))
     await fs.rm(temp, { recursive: true, force: true })
   }
 }
 
-(async () => { for (const engine of (process.env.BROWSER || "chromium").split(",")) for (const lang of ["en", "zh"]) await run(engine, lang) })().catch((error) => { console.error(error); process.exitCode = 1 })
+;(async () => { for (const engine of (process.env.BROWSER || "chromium").split(",")) for (const lang of ["en", "zh"]) await run(engine, lang) })().catch((error) => { console.error(error); process.exitCode = 1 })

@@ -36,3 +36,12 @@ export function authenticatedHeaders(config, key, initial = config.headers) {
   headers.set(config.authHeader, config.authHeader === "authorization" ? "Bearer " + key : key)
   return headers
 }
+
+// The provider speaks Codex's Responses API. Identify that client on both
+// model discovery and requests, including relays that authenticate clients.
+// Explicit user headers keep precedence, independently of the upstream host.
+export function clientHeaders(initial, enabled = true) {
+  const headers = new Headers(initial)
+  if (enabled && !headers.has("originator")) headers.set("originator", "codex_cli_rs")
+  return headers
+}

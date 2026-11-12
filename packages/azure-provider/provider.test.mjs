@@ -6,10 +6,9 @@ const authAt = (baseURL) => ({ type: "api", key: "test-relay-key", metadata: { b
 let fetchMock
 afterEach(() => fetchMock?.mockRestore())
 
-// Include the former special-case host to catch client headers being added
-// implicitly. All connection settings belong to the user.
+// The same Codex identity applies independently of the upstream hostname.
 for (const base of ["https://resource.openai.azure.com/openai/v1", "https://relay.example/proxy/v1", "https://agentrouter.org/v1"]) {
-  test(`account URL ${base} is used without implicit client headers`, async () => {
+  test(`account URL ${base} retains the user's connection settings`, async () => {
     const plugin = await azureGPT(input)
     const auth = authAt(base)
     const loader = await plugin.auth.loader(async () => auth)
@@ -25,7 +24,7 @@ for (const base of ["https://resource.openai.azure.com/openai/v1", "https://rela
       const headers = new Headers(init.headers)
       expect(headers.get("authorization")).toBe("Bearer test-relay-key")
       expect(headers.get("x-client")).toBe("user-selected-client")
-      expect(headers.has("originator")).toBe(false)
+      expect(headers.get("originator")).toBe("codex_cli_rs")
       return Response.json({ data: [{ id: "custom-deployment", reasoning: true, context_window: 64000,
         max_output_tokens: 8192, reasoning_levels: ["medium"], tool_call: true,
         modalities: { input: ["text", "image"], output: ["text"] } }] })
@@ -125,4 +124,51 @@ test("an empty upstream model list reports why the provider has no models", asyn
   fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [] }))
   const plugin = await azureGPT(input)
   await expect(plugin.provider.models({ models: {} }, { auth: authAt("https://relay.example/v1") })).rejects.toThrow("model listing returned no models")
+})
+
+test("a fresh URL/key sign-in identifies Codex for discovery and requests", async () => {
+  const calls = []
+  fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+    const headers = new Headers(init.headers)
+    calls.push({ url, headers, body: init.body })
+    if (headers.get("originator") !== "codex_cli_rs") return Response.json({ error: "unauthorized_client_error" }, { status: 401 })
+    return url.endsWith("/models") ? Response.json({ data: [{ id: "arbitrary-deployment" }] }) : Response.json({ status: "completed", output: [] })
+  })
+  const plugin = await azureGPT(input)
+  const auth = authAt("https://new-relay.example/v1")
+  const models = await plugin.provider.models({ models: {} }, { auth })
+  expect(Object.keys(models)).toEqual(["arbitrary-deployment"])
+  const loader = await plugin.auth.loader(async () => auth)
+  const body = JSON.stringify({ model: "arbitrary-deployment", input: "hello", reasoning: { effort: "medium" } })
+  expect((await loader.fetch(loader.baseURL + "/responses", { method: "POST", body })).status).toBe(200)
+  expect(calls[1].body).toBe(body)
+  expect(calls.every((call) => call.headers.get("authorization") === "Bearer test-relay-key")).toBe(true)
+})
+
+test("explicit client identity is retained and the default can be disabled through the provider editor", async () => {
+  let enabled = true
+  const calls = []
+  fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => { calls.push(new Headers(init.headers)); return Response.json({ status: "completed", output: [] }) })
+  const plugin = await azureGPT({ ...input, magpie: { option: (_provider, key) => key === "codex_headers" ? enabled : true } })
+  const loader = await plugin.auth.loader(async () => authAt("https://relay.example/v1"))
+  await loader.fetch(loader.baseURL + "/responses", { method: "POST", body: "{}" })
+  enabled = false
+  await loader.fetch(loader.baseURL + "/responses", { method: "POST", body: "{}" })
+  await loader.fetch(loader.baseURL + "/responses", { method: "POST", body: "{}", headers: { Originator: "user-selected-client" } })
+  expect(calls[0].get("originator")).toBe("codex_cli_rs")
+  expect(calls[1].has("originator")).toBe(false)
+  expect(calls[2].get("originator")).toBe("user-selected-client")
+  const configured = await azureGPT(input, { headers: { Originator: "configured-client", Authorization: "Custom test-auth" } })
+  const configuredLoader = await configured.auth.loader(async () => authAt("https://relay.example/v1"))
+  await configuredLoader.fetch(configuredLoader.baseURL + "/responses", { method: "POST", body: "{}" })
+  expect(calls[3].get("originator")).toBe("configured-client")
+  expect(calls[3].get("authorization")).toBe("Custom test-auth")
+})
+
+test("an empty manual list saved by the old page restores upstream discovery", async () => {
+  fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [{ id: "discovered-deployment" }] }))
+  const plugin = await azureGPT(input, { models: {} })
+  const models = await plugin.provider.models({ models: {} }, { auth: authAt("https://relay.example/v1") })
+  expect(Object.keys(models)).toEqual(["discovered-deployment"])
+  expect(models["discovered-deployment"].api.npm).toBe("@ai-sdk/openai")
 })

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.2 — 2026-11-12
+
+- Remove the standalone settings page, provider-menu action and local HTTP
+  service. Use Magpie's normal Add provider sign-in and native provider
+  editor, including its Advanced section. Existing sign-ins and per-account
+  connection overrides remain compatible.
+- Send the standard `originator: codex_cli_rs` client identity on model
+  discovery and requests, independently of the upstream hostname. Explicit
+  client headers take precedence; the native provider's Plugin options can
+  disable this default.
+- Fix fresh URL/key setups on Responses relays that reject model discovery
+  without that client identity. A HTTP 401 left no model interfaces and
+  could surface as `Azure GPT has no endpoint configured`; 0.4.1's wait for
+  discovery did not address this authentication failure.
+- Restore discovery when an empty `models: {}` was saved by the old page,
+  rather than publishing an empty list with no request interface.
+- Replace standalone-page tests with actual Magpie Add provider and Advanced
+  editor checks. Verify saved and published limits, concurrency, queues,
+  pricing, the Responses endpoint and authenticated history recovery.
+- Check a fresh URL/key-only profile against the inspected live channel:
+  discovery listed models and a Responses stream completed with HTTP 200.
+
 ## 0.4.1 — 2026-11-12
 
 - Fix the new settings page reporting an account added before Magpie had

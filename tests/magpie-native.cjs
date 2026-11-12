@@ -15,8 +15,9 @@ async function run(existing) {
   const calls = []
   const upstream = http.createServer(async (req, res) => {
     for await (const _chunk of req) {} // Consume the body before answering.
-    calls.push({ url: req.url, authorization: req.headers.authorization })
+    calls.push({ url: req.url, authorization: req.headers.authorization, originator: req.headers.originator })
     res.setHeader("content-type", "application/json")
+    if (req.headers.originator !== "codex_cli_rs") { res.statusCode = 401; return res.end(JSON.stringify({ error: "unauthorized_client_error" })) }
     if (req.method === "GET") {
       await sleep(1200)
       return res.end(JSON.stringify({ data: [{ id: "deployment-test", reasoning: true, reasoning_levels: ["medium"] }] }))
@@ -27,13 +28,15 @@ async function run(existing) {
   const upstreamPort = await listen(upstream), gatewayPort = await freePort(), webPort = await freePort(), uiPort = await freePort()
   const base = `http://127.0.0.1:${webPort}`, gateway = `http://127.0.0.1:${gatewayPort}`, apiBase = `http://127.0.0.1:${upstreamPort}/v1`
   await fs.mkdir(config, { recursive: true })
-  await fs.writeFile(path.join(config, "plugins.json"), JSON.stringify({ plugins: [{ spec: root, options: { uiPort, name: "Work Azure" } }] }))
+  const account = existing === "page" ? "azure-gpt#0123456789abcdef" : "azure-gpt"
+  const options = { name: "Work Azure", ...(existing === "page" ? { uiPort, models: {}, connections: { [account]: { baseURL: apiBase } } } : {}) }
+  await fs.writeFile(path.join(config, "plugins.json"), JSON.stringify({ plugins: [{ spec: root, options }] }))
   await fs.writeFile(path.join(config, "settings.json"), JSON.stringify({ autoRestart: false, updateEvery: 0, codexAgentsV1: false }))
   if (existing) {
-    await fs.writeFile(path.join(config, "plugin-auth.json"), JSON.stringify({ "azure-gpt": { type: "api", key: "fake-native-api-key", metadata: { baseURL: apiBase } } }))
+    await fs.writeFile(path.join(config, "plugin-auth.json"), JSON.stringify({ [account]: { type: "api", key: "fake-native-api-key", ...(existing === "page" ? { accountId: "Work" } : {}), metadata: { baseURL: existing === "page" ? "http://127.0.0.1:1/old/v1" : apiBase } } }))
     await fs.writeFile(path.join(config, "providers.json"), JSON.stringify({ providers: [{ id: "azure-gpt", models: ["deployment-test"] }] }))
   }
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("MAGPIE_")))
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => ["PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA"].includes(key)))
   const env = { ...inherited, ...(process.env.MAGPIE_BUN ? { MAGPIE_BUN: process.env.MAGPIE_BUN } : {}),
     HOME: path.join(temp, "home"), XDG_CONFIG_HOME: path.join(temp, "config"), XDG_CACHE_HOME: path.join(temp, "cache"), XDG_STATE_HOME: path.join(temp, "state"),
     MAGPIE_ADDR: `127.0.0.1:${gatewayPort}`, MAGPIE_WEB_KEY: "test-web-access-key" }
@@ -71,12 +74,12 @@ async function run(existing) {
     const response = await fetch(gateway + "/v1/responses", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: "azure-gpt/deployment-test", stream: false, input: [{ role: "user", content: "hello" }] }) })
     assert.equal(response.status, 200, await response.text())
-    assert(calls.some((call) => call.url === "/v1/responses" && call.authorization === "Bearer fake-native-api-key"))
+    assert(calls.some((call) => call.url === "/v1/responses" && call.authorization === "Bearer fake-native-api-key" && call.originator === "codex_cli_rs"))
     const auth = JSON.parse(await fs.readFile(path.join(config, "plugin-auth.json"), "utf8"))
-    assert.equal(auth["azure-gpt"].metadata.baseURL, apiBase)
-    assert.equal(auth["azure-gpt"].key, "fake-native-api-key")
+    assert.equal(auth[account].metadata.baseURL, existing === "page" ? "http://127.0.0.1:1/old/v1" : apiBase)
+    assert.equal(auth[account].key, "fake-native-api-key")
     const version = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")).version
-    console.log(`PASS ${version}: ${existing ? "existing native sign-in and model selection" : "native URL + Key sign-in"}, discovered model, authenticated request`)
+    console.log(`PASS ${version}: ${existing === "page" ? "account created by the removed page with a connection override" : existing ? "existing native sign-in and model selection" : "native URL + Key sign-in"}, discovered model, authenticated request`)
   } catch (error) { console.error(logs.slice(-3000)); throw error } finally {
     try { process.kill(-child.pid, "SIGTERM") } catch {}
     await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(1000)])
@@ -86,4 +89,4 @@ async function run(existing) {
   }
 }
 
-;(async () => { await run(false); await run(true) })().catch((error) => { console.error(error); process.exitCode = 1 })
+;(async () => { await run(false); await run(true); await run("page") })().catch((error) => { console.error(error); process.exitCode = 1 })
