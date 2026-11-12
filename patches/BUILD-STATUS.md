@@ -1,5 +1,49 @@
 # Build and deployment — 2026-11-12
 
+## 0.3.2 AgentRouter connection and recovery fix
+
+The Linux installation runs official Magpie 0.1.3882 with plugin 0.3.1.
+Its saved Azure GPT key matches the working `agent` channel's key. An
+authenticated GET to `https://agentrouter.org/v1/models` returned HTTP 401
+with `unauthorized_client_error`; the same request with the working channel's
+`originator: codex_cli_rs` returned HTTP 200. Version 0.3.2 supplies that
+header for AgentRouter discovery and transport, with explicit headers winning.
+
+The three reported sessions used `agent/gpt-6.1-sol`. Their Magpie usage
+records contain six cross-resource HTTP 400 failures each, including the
+relay wording `created under a different *** OpenAI resource`. The transport
+now recognizes that masked wording. These sessions contain encrypted
+reasoning and no native compaction checkpoints.
+
+The inspected upstream model list contains IDs only. `configs/agentrouter.json`
+retains the working channel's two models, 512000 context, 128000 output,
+reasoning levels, image input, priority tier and pricing. Without explicit
+metadata the plugin host listed these sparse models with `reasoning: false`
+and no limits or variants.
+
+Verification on Linux:
+
+- Before the code fix, the new provider/transport suite reported 6 passing
+  and 6 failing tests, including the missing discovery header and masked
+  HTTP/SSE recovery. After the fix, `bun test packages` passes all 43 tests,
+  including the 30 legacy cases and the manual model metadata check.
+- JavaScript parser checks and Git whitespace checks pass.
+- An isolated official Magpie plugin host loaded the modified provider and
+  successfully discovered the three upstream model IDs using the real account.
+- An isolated official Magpie gateway using the manual configuration listed
+  both models with the expected limits, reasoning levels and priority tier.
+  Two real SSE turns on `azure-gpt/gpt-6.1-sol`, effort `low`, completed with
+  `OK`. The second replayed the first response's encrypted reasoning; both
+  outputs retained encrypted reasoning and both usage records reported 200.
+  The two turns used 120 tokens total. No resource rejection occurred in
+  those two live turns; recovery is covered by the literal-error fixtures.
+- Temporary gateway processes and configuration directories were removed
+  after the checks.
+
+The source fix is prepared locally as 0.3.2. The running installation remains
+0.3.1. The README gives the local installation steps, including disabling the
+GitHub copy before loading the local path and applying the model configuration.
+
 ## 0.3.1 fresh-server sign-in fix
 
 The user's server installation exposed a path the local preconfigured

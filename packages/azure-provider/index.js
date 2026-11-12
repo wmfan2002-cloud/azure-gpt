@@ -34,8 +34,9 @@ export default async function azureGPT(input, options = {}) {
       async loader(getAuth) {
         const auth = await getAuth()
         if (auth?.type !== "api" || !auth.key) throw new Error("Sign in to Azure GPT with your relay API key.")
-        return { baseURL: configuredBase || baseURL(auth.metadata?.baseURL), apiKey: auth.key,
-          headers: options.headers ?? {},
+        const base = configuredBase || baseURL(auth.metadata?.baseURL)
+        return { baseURL: base, apiKey: auth.key,
+          headers: relayHeaders(base, options.headers),
           fetch: createRecoveryFetch(globalThis.fetch, {
             enabled: () => input.magpie?.option(ID, "recovery") !== false,
             log,
@@ -51,9 +52,12 @@ export default async function azureGPT(input, options = {}) {
         }]))
         if (context.auth?.type !== "api") return provider.models
         const base = configuredBase || baseURL(context.auth.metadata?.baseURL)
+        const headers = new Headers(relayHeaders(base, options.headers))
+        headers.set("authorization", "Bearer " + context.auth.key)
         const response = await fetch(base + "/models", { signal: context.signal,
-          headers: { ...(options.headers ?? {}), authorization: "Bearer " + context.auth.key } })
-        if (!response.ok) throw new Error(`Azure GPT model listing returned HTTP ${response.status}.`)
+          headers })
+        if (!response.ok) throw new Error(`Azure GPT model listing returned HTTP ${response.status}.`
+          + ([401, 403].includes(response.status) ? " Check the relay API key and its required client headers in plugin options." : ""))
         const list = await response.json()
         if (!Array.isArray(list.data)) throw new Error("Azure GPT expects /models to return a data array; configure models in plugin options if the relay has no model list.")
         return Object.fromEntries(list.data.filter((row) => typeof row?.id === "string" && row.id)
@@ -61,6 +65,15 @@ export default async function azureGPT(input, options = {}) {
       },
     },
   }
+}
+
+function relayHeaders(base, configured) {
+  // AgentRouter rejects discovery without a supported client identity, even
+  // with the same key that serves Codex. Match its working Codex channel for
+  // discovery and transport; explicit user headers win regardless of case.
+  const headers = new Headers(new URL(base).hostname === "agentrouter.org" ? { originator: "codex_cli_rs" } : {})
+  for (const [key, value] of new Headers(configured ?? {})) headers.set(key, value)
+  return Object.fromEntries(headers)
 }
 
 function baseURL(value) {

@@ -31,6 +31,23 @@ local installation already has it configured.
 start sign-in again. Version 0.3.1 fixes the first-install flow that skipped
 the API-key field after a valid URL and failed with "sign-in gave no key".
 
+**AgentRouter:** version 0.3.2 includes its required
+`originator: codex_cli_rs` header for model discovery and requests. Existing
+0.3.1 installations can also set this header in plugin options. The same
+key can otherwise work on a custom Codex channel while `/models` fails with
+`401 unauthorized_client_error` on the plugin.
+
+AgentRouter's inspected `/models` response contains model IDs but omits
+reasoning capabilities, levels and token limits. Configure those explicitly
+to retain the original channel's settings. [configs/agentrouter.json](configs/agentrouter.json)
+contains the inspected channel's two models, 512000 context, 128000 output,
+image input and six reasoning levels. Adjust the limits to your own channel,
+then apply it from this checkout:
+
+```sh
+magpie plugin options azure-gpt "$(cat configs/agentrouter.json)"
+```
+
 In Magpie, select **Azure GPT · 按报错修复** as the provider for Codex, then
 choose the original model and reasoning level. This is a new provider: merely
 installing it does not intercept an existing `agent/...` channel.
@@ -38,9 +55,14 @@ installing it does not intercept an existing `agent/...` channel.
 To install local unpublished changes:
 
 ```sh
-git clone https://github.com/wmfan2002-cloud/azure-gpt.git
-magpie plugin add ./azure-gpt
+magpie plugin off azure-gpt
+magpie plugin add /path/to/azure-gpt
+magpie plugin options /path/to/azure-gpt "$(cat /path/to/azure-gpt/configs/agentrouter.json)"
 ```
+
+Magpie registers a local path separately from a GitHub package. Turn the
+GitHub installation off first so the two copies do not compete to serve
+`azure-gpt`. The local installation uses the existing provider sign-in.
 
 ### A relay with a manual model list
 
@@ -137,6 +159,6 @@ node --check packages/azure-provider/index.js
 node --check packages/azure-provider/transport.js
 ```
 
-The existing `bun test packages/codex-strip` suite covers the legacy middleware,
-not the new transport. Current build/load evidence and deployment state are in
+`bun test packages` covers the provider, HTTP/SSE recovery transport and legacy
+middleware. Current build/load evidence and deployment state are in
 [BUILD-STATUS.md](patches/BUILD-STATUS.md).

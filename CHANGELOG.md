@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.2 — 2026-11-12
+
+- Send AgentRouter's required `originator: codex_cli_rs` header on model
+  discovery and requests. The same key worked on a custom channel but model
+  discovery failed with `401 unauthorized_client_error` without this header.
+  Explicit headers override this host-specific default.
+- Recognize resource errors whose relay masks `Azure` as `***`; these actual
+  HTTP 400 errors previously passed through without recovery.
+- Add a manual AgentRouter model configuration matching the inspected
+  channel's limits and reasoning levels, since its `/models` lists IDs only.
+- Cover provider setup and HTTP/SSE recovery in the root test command,
+  including intact first requests, tool pairs, output-start boundaries,
+  protected checkpoints and the single retry limit.
+
 ## 0.3.1 — 2026-11-12
 
 - Fix fresh-server sign-in after entering a valid URL. In 0.3.0, the URL

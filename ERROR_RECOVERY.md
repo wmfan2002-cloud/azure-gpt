@@ -26,6 +26,11 @@ specific Azure resource and decryption failures. A successful answer that
 quotes those words is not an error. Authentication, quota, timeout, generic
 server and safety failures do not trigger history repair.
 
+Resource errors are also recognized when a relay masks Azure as `***`, as
+in `created under a different *** OpenAI resource`. AgentRouter requires
+`originator: codex_cli_rs`; the provider supplies it for that host on both
+model discovery and transport, with configured headers taking precedence.
+
 The plugin handles HTTP 200 containing `response.failed` as well as ordinary
 HTTP validation errors. Error inspection is bounded to 32 KiB. Oversized or
 unrecognized replies pass through rather than being guessed at.

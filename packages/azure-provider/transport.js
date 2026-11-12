@@ -65,7 +65,8 @@ function failureOf(error, status) {
   if (!text || text.length > ERROR_LIMIT) return null
   const lower = text.toLowerCase()
   let kind
-  if (lower.includes("created under a different") && lower.includes("azure openai resource")) kind = "foreign_resource"
+  // Relays may redact Azure to "***" while retaining the resource error.
+  if (lower.includes("created under a different") && lower.includes("openai resource")) kind = "foreign_resource"
   else if (lower.includes("invalid_encrypted_content")
     || lower.includes("encrypted content could not be decrypted or parsed")
     || (lower.includes("encrypted content") && lower.includes("could not be verified"))

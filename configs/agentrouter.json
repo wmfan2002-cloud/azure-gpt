@@ -1,0 +1,26 @@
+{
+  "baseURL": "https://agentrouter.org/v1",
+  "headers": { "originator": "codex_cli_rs" },
+  "models": {
+    "gpt-6-astra": {
+      "name": "GPT-6 Astra",
+      "reasoning": true,
+      "tool_call": true,
+      "cost": { "input": 10, "output": 50, "cache_read": 1, "cache_write": 12.5 },
+      "limit": { "context": 512000, "output": 128000 },
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "variants": { "low": {}, "medium": {}, "high": {}, "xhigh": {}, "max": {}, "ultra": {} },
+      "serviceTiers": ["priority"]
+    },
+    "gpt-6.1-sol": {
+      "name": "GPT-6.1 Sol",
+      "reasoning": true,
+      "tool_call": true,
+      "cost": { "input": 2, "output": 10, "cache_read": 0.1, "cache_write": 2.5 },
+      "limit": { "context": 512000, "output": 128000 },
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "variants": { "low": {}, "medium": {}, "high": {}, "xhigh": {}, "max": {}, "ultra": {} },
+      "serviceTiers": ["priority"]
+    }
+  }
+}

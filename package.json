@@ -1,6 +1,6 @@
 {
   "name": "@magpie-community/azure-gpt",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Azure Responses provider for stock Magpie: retain normal reasoning and repair only rejected requests",
   "type": "module",
@@ -9,6 +9,6 @@
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/wmfan2002-cloud/azure-gpt.git" },
   "scripts": {
-    "test": "bun test packages/codex-strip"
+    "test": "bun test packages"
   }
 }
