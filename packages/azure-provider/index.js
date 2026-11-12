@@ -24,13 +24,12 @@ export default async function azureGPT(input, options = {}) {
         description: "Preserve normal requests; repair and retry only a rejected request, before output starts.",
         descriptions: { zh: "正常请求保留完整推理；仅在指定报错且尚未输出时修复重试。" }, default: true }],
       methods: [{ type: "api", label: "Azure relay API key", labels: { zh: "Azure 中转 API Key" },
-        prompts: configuredBase ? [] : [{ type: "text", key: "baseURL", message: "Responses API base URL (including /v1)",
-          messages: { zh: "Responses API 基础地址（包含 /v1）" }, placeholder: "https://relay.example.com/v1",
+        // Magpie treats prompts + authorize as a method that asks for its
+        // own key. This prompt asks only for the URL: omit authorize so
+        // Magpie asks for the key next and saves the URL in auth.metadata.
+        prompts: configuredBase ? [] : [{ type: "text", key: "baseURL", message: "Upstream relay API base URL (including /v1)",
+          messages: { zh: "上游中转 API 地址（包含 /v1，不是 Magpie 地址）" }, placeholder: "https://relay.example.com/v1",
           validate(value) { try { baseURL(value) } catch (error) { return error.message } } }],
-        async authorize(answers) {
-          try { return { type: "success", metadata: { baseURL: configuredBase || baseURL(answers.baseURL) } } }
-          catch (error) { return { type: "failed", error: error.message } }
-        },
       }],
       async loader(getAuth) {
         const auth = await getAuth()

@@ -16,10 +16,20 @@ magpie plugin add github:wmfan2002-cloud/azure-gpt#main
 magpie plugin login azure-gpt
 ```
 
-The sign-in asks for your relay's Responses base URL, such as
-`https://relay.example.com/v1`, and its API key. The key is kept by Magpie's
-normal plugin sign-in store. The plugin never reads another channel's keys.
-The relay's `/models` endpoint supplies the model list.
+The sign-in first asks for your **upstream relay's Responses base URL**, such
+as `https://relay.example.com/v1`. Click Next, then enter the relay's API key
+in Magpie's normal key field. Use the original provider's API base, not your
+Magpie server's address or the full `/responses` endpoint. The key and URL are
+kept by Magpie's normal plugin sign-in store. The plugin never reads another
+channel's keys. The relay's `/models` endpoint supplies the model list.
+
+Installing from GitHub on another computer does not copy your local Magpie
+options or sign-ins. A fresh server therefore asks for the URL even when your
+local installation already has it configured.
+
+**Upgrading from 0.3.0:** update the plugin, close the old sign-in form, and
+start sign-in again. Version 0.3.1 fixes the first-install flow that skipped
+the API-key field after a valid URL and failed with "sign-in gave no key".
 
 In Magpie, select **Azure GPT · 按报错修复** as the provider for Codex, then
 choose the original model and reasoning level. This is a new provider: merely
@@ -106,6 +116,8 @@ approach and are not used by 0.3.0.
 
 这是渠道插件，不再是依赖主程序补丁的请求中间件。安装后在 Magpie 中为
 **Azure GPT · 按报错修复** 登录原来的中转 API Key，再给 Codex 选用该渠道。
+新服务器首次登录先填原上游的 API 基础地址（例如 `https://中转域名/v1`），
+点击“下一步”后再输入 API Key。本机的插件配置不会随 Git push 自动带到服务器。
 正常请求保留完整 reasoning；遇到对应错误且尚未输出时才修复并重试一次。
 不会把整个会话切成永久清理模式，也不会改本地对话历史。
 

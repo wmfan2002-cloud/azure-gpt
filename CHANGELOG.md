@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-11-12
+
+- Fix fresh-server sign-in after entering a valid URL. In 0.3.0, the URL
+  prompt plus a custom `authorize` made Magpie classify the method as asking
+  for its own API key, so it skipped the key field and failed with no key.
+- Use Magpie's built-in API-key method: ask for the URL, then the key, and
+  retain the URL in account metadata. Preconfigured `baseURL` still skips
+  only the URL question. Existing sign-ins remain compatible.
+- Clarify the URL field and installation guide: use the upstream relay's
+  API base, and configure a fresh server separately from a local checkout.
+
 ## 0.3.0 — 2026-11-11
 
 - Replace the root middleware entry point with an OpenCode-compatible

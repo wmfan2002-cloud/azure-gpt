@@ -1,4 +1,20 @@
-# Build and deployment — 2026-11-11
+# Build and deployment — 2026-11-12
+
+## 0.3.1 fresh-server sign-in fix
+
+The user's server installation exposed a path the local preconfigured
+installation did not exercise. Magpie's `keyAsked` recognizes any API method
+with nonempty `prompts` and an `authorize` function as asking for its own key.
+The 0.3.0 method asked only for the URL, so Magpie skipped its key field and
+`apiKey` rejected the result as containing no key. The 0.3.1 method omits
+`authorize` and uses the existing standard branch, which stores the key and
+keeps the URL answers in account metadata.
+
+The change was checked against the host's method classification, API-key
+storage and GUI transition code. The provider JavaScript parser check passed.
+No sign-in was automated, no model request or test suite was run. The fix is
+prepared locally for the user to push and update on the server; the server's
+successful login remains to be confirmed.
 
 ## 0.3.0 pure provider plugin
 
