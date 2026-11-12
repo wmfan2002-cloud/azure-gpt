@@ -5,6 +5,7 @@ const os = require("node:os")
 const path = require("node:path")
 const http = require("node:http")
 const { spawn } = require("node:child_process")
+const { sparseIDs, levels, seedCatalog, assertMetadata } = require("./model-catalog.cjs")
 const { chromium, webkit } = require(process.env.PLAYWRIGHT_MODULE || "playwright")
 const root = path.resolve(__dirname, "..")
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -22,7 +23,7 @@ async function run(engine, lang) {
     if (req.headers.originator !== "codex_cli_rs") { res.statusCode = 401; return res.end(JSON.stringify({ error: "unauthorized_client_error" })) }
     if (req.method === "GET") {
       await sleep(1200)
-      return res.end(JSON.stringify({ data: [{ id: "test-deployment", reasoning: true, reasoning_levels: ["medium"], context_window: 64000, max_output_tokens: 8192 }] }))
+      return res.end(JSON.stringify({ data: [{ id: "test-deployment", reasoning: true, reasoning_levels: ["medium"], context_window: 64000, max_output_tokens: 8192 }, ...sparseIDs.map((id) => ({ id }))] }))
     }
     if (body.input?.some((item) => item.type === "reasoning")) {
       res.statusCode = 400
@@ -35,6 +36,7 @@ async function run(engine, lang) {
   const upstreamPort = await listen(upstream), gatewayPort = await freePort(), webPort = await freePort()
   const base = `http://127.0.0.1:${webPort}`, gateway = `http://127.0.0.1:${gatewayPort}`, apiBase = `http://127.0.0.1:${upstreamPort}/openai/v1`
   await fs.mkdir(config, { recursive: true })
+  await seedCatalog(temp)
   await fs.writeFile(path.join(config, "plugins.json"), JSON.stringify({ plugins: [{ spec: root, options: {} }] }))
   await fs.writeFile(path.join(config, "settings.json"), JSON.stringify({ lang, autoRestart: false, updateEvery: 0, codexAgentsV1: false }))
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => ["PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA"].includes(key)))
@@ -79,6 +81,19 @@ async function run(engine, lang) {
       await sleep(100)
     }
     assert(model?.native_endpoints?.includes("/v1/responses"), "discovery registers the actual Responses endpoint")
+    assertMetadata((await fetch(gateway + "/v1/models").then((response) => response.json())).data)
+    // The editor opened before delayed discovery completed; use its native
+    // refresh action to display the completed list in that existing form.
+    await editor.locator(".fetch-models").click()
+    await editor.locator(".mchip", { hasText: "GPT-6.1 Sol" }).waitFor()
+    await editor.getByRole("button", { name: lang === "zh" ? "模型设置" : "Model settings", exact: true }).click()
+    const sol = editor.locator(".mname").filter({ has: page.locator(".mwho code", { hasText: /^gpt-6\.1-sol$/ }) })
+    await sol.waitFor()
+    for (const level of levels["gpt-6.1-sol"]) {
+      const label = lang === "zh" ? { low: "低", high: "高", max: "最高" }[level] : level
+      assert.equal(await sol.locator(".mlevels label").filter({ hasText: new RegExp(`^${label}$`) }).locator("input[type=checkbox]").isChecked(), true)
+    }
+    await editor.getByRole("button", { name: lang === "zh" ? "模型设置" : "Model settings", exact: true }).click()
     const advanced = editor.locator("details.advanced")
     if (!await advanced.evaluate((element) => element.open)) await advanced.locator(":scope > summary").click()
     for (const [selector, value] of [["input.contexts", "test-deployment=128k"], ["input.outputs", "4096"], ["input.compacts", "48000"], ["input.concurrency", "2"], ["input.max-accounts", "2"], ["input.rpm", "120"], ["input.queue-limit", "4"], ["input.queue-wait", "30"], ["input.price-rate", "0.8"]]) {
@@ -133,7 +148,7 @@ async function run(engine, lang) {
     assert.equal(await editor.locator("input.contexts").inputValue(), "test-deployment=128k")
     if (process.env.UI_SCREENSHOT) await page.screenshot({ path: process.env.UI_SCREENSHOT, fullPage: true, animations: "disabled" })
     assert.equal(errors.length, 0, errors.join("\n"))
-    console.log(`PASS ${engine} ${lang}: native URL/key form, real endpoint, Advanced settings saved and published, authenticated recovery, settings retained on reopening`)
+    console.log(`PASS ${engine} ${lang}: native URL/key form, catalog reasoning in Model settings, real endpoint, Advanced settings saved and published, authenticated recovery, settings retained on reopening`)
   } catch (error) {
     if (page) await page.screenshot({ path: "/tmp/azure-gpt-native-ui-failure.png", fullPage: true }).catch(() => {})
     console.error("Browser errors:", errors)

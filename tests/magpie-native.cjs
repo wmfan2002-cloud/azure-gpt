@@ -5,6 +5,7 @@ const os = require("node:os")
 const path = require("node:path")
 const http = require("node:http")
 const { spawn } = require("node:child_process")
+const { sparseIDs, seedCatalog, assertMetadata } = require("./model-catalog.cjs")
 const root = process.env.PLUGIN_ROOT || path.resolve(__dirname, "..")
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)))
@@ -20,7 +21,7 @@ async function run(existing) {
     if (req.headers.originator !== "codex_cli_rs") { res.statusCode = 401; return res.end(JSON.stringify({ error: "unauthorized_client_error" })) }
     if (req.method === "GET") {
       await sleep(1200)
-      return res.end(JSON.stringify({ data: [{ id: "deployment-test", reasoning: true, reasoning_levels: ["medium"] }] }))
+      return res.end(JSON.stringify({ data: [{ id: "deployment-test", reasoning: true, reasoning_levels: ["medium"] }, ...sparseIDs.map((id) => ({ id }))] }))
     }
     res.end(JSON.stringify({ id: "resp_ok", object: "response", status: "completed", model: "deployment-test",
       output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "ok", annotations: [] }] }] }))
@@ -28,6 +29,7 @@ async function run(existing) {
   const upstreamPort = await listen(upstream), gatewayPort = await freePort(), webPort = await freePort(), uiPort = await freePort()
   const base = `http://127.0.0.1:${webPort}`, gateway = `http://127.0.0.1:${gatewayPort}`, apiBase = `http://127.0.0.1:${upstreamPort}/v1`
   await fs.mkdir(config, { recursive: true })
+  await seedCatalog(temp)
   const account = existing === "page" ? "azure-gpt#0123456789abcdef" : "azure-gpt"
   const options = { name: "Work Azure", ...(existing === "page" ? { uiPort, models: {}, connections: { [account]: { baseURL: apiBase } } } : {}) }
   await fs.writeFile(path.join(config, "plugins.json"), JSON.stringify({ plugins: [{ spec: root, options }] }))
@@ -71,6 +73,7 @@ async function run(existing) {
       await sleep(100)
     }
     assert(offered, "the saved account offers its discovered model")
+    if (!existing) assertMetadata((await fetch(gateway + "/v1/models").then((response) => response.json())).data)
     const response = await fetch(gateway + "/v1/responses", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: "azure-gpt/deployment-test", stream: false, input: [{ role: "user", content: "hello" }] }) })
     assert.equal(response.status, 200, await response.text())
@@ -79,7 +82,7 @@ async function run(existing) {
     assert.equal(auth[account].metadata.baseURL, existing === "page" ? "http://127.0.0.1:1/old/v1" : apiBase)
     assert.equal(auth[account].key, "fake-native-api-key")
     const version = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")).version
-    console.log(`PASS ${version}: ${existing === "page" ? "account created by the removed page with a connection override" : existing ? "existing native sign-in and model selection" : "native URL + Key sign-in"}, discovered model, authenticated request`)
+    console.log(`PASS ${version}: ${existing === "page" ? "account created by the removed page with a connection override" : existing ? "existing native sign-in and model selection" : "native URL + Key sign-in, catalog capabilities and maker/family reasoning"}, discovered model, authenticated request`)
   } catch (error) { console.error(logs.slice(-3000)); throw error } finally {
     try { process.kill(-child.pid, "SIGTERM") } catch {}
     await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(1000)])

@@ -1,5 +1,8 @@
 import { afterEach, expect, spyOn, test } from "bun:test"
 import azureGPT from "./index.js"
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
 const input = { client: { app: { log: async () => {} } } }
 const authAt = (baseURL) => ({ type: "api", key: "test-relay-key", metadata: { baseURL } })
@@ -67,6 +70,49 @@ test("sparse model discovery retains metadata already supplied by the user", asy
   expect(models["custom-deployment"].limit).toEqual(previous.limit)
   expect(models["custom-deployment"].variants).toEqual(previous.variants)
   expect(models["custom-deployment"].capabilities).toEqual(previous.capabilities)
+})
+
+test("ID-only discovery fills capabilities from Magpie while retaining upstream and configured metadata", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "azure-metadata-"))
+  try {
+    await mkdir(path.join(directory, "cache"))
+    await writeFile(path.join(directory, "cache/models.json"), JSON.stringify({ openai: { models: {
+      "gpt-6.1-sol": { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", reasoning: true, temperature: false,
+        tool_call: true, limit: { context: 100000, input: 90000, output: 10000 }, modalities: { input: ["text", "image", "pdf"], output: ["text"] } },
+      "gpt-4o": { id: "gpt-4o", reasoning: false },
+    } } }))
+    const base = "https://relay.example/v1"
+    fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [{ id: "openai/GPT-6.1-Sol" }, { id: "gpt-4o" }, { id: "my-deployment" }] }))
+    const plugin = await azureGPT({ ...input, directory })
+    let models = await plugin.provider.models({ models: {} }, { auth: authAt(base) })
+    const known = models["openai/GPT-6.1-Sol"]
+    expect(known.name).toBe("GPT-6.1 Sol")
+    expect(known.capabilities.reasoning).toBe(true)
+    expect(known.capabilities.input.pdf).toBe(true)
+    expect(known.limit).toEqual({ context: 100000, input: 90000, output: 10000 })
+    expect(known.api).toEqual({ id: "openai/GPT-6.1-Sol", npm: "@ai-sdk/openai", url: base })
+    expect(known.variants).toBeUndefined()
+    expect(models["gpt-4o"].capabilities.reasoning).toBe(false)
+    expect(models["my-deployment"].capabilities.reasoning).toBeUndefined()
+
+    fetchMock.mockResolvedValue(Response.json({ data: [{ id: "gpt-6.1-sol", reasoning: false, temperature: true, context_window: 60000, max_output_tokens: 4000, reasoning_levels: [], modalities: { input: ["text"] } }] }))
+    models = await plugin.provider.models({ models: {} }, { auth: authAt(base) })
+    expect(models["gpt-6.1-sol"].capabilities.reasoning).toBe(false)
+    expect(models["gpt-6.1-sol"].capabilities.input.image).toBe(false)
+    expect(models["gpt-6.1-sol"].limit.context).toBe(60000)
+    expect(models["gpt-6.1-sol"].limit.output).toBe(4000)
+    expect(models["gpt-6.1-sol"].temperature).toBe(true)
+    expect(models["gpt-6.1-sol"].variants).toEqual({})
+
+    fetchMock.mockResolvedValue(Response.json({ data: [{ id: "gpt-6.1-sol" }, { id: "levels-only", supported_reasoning_levels: [{ effort: "high" }] }] }))
+    const previous = { name: "My Sol", limit: { context: 50000, input: 0, output: 0 }, capabilities: { reasoning: false }, variants: {} }
+    models = await plugin.provider.models({ models: { "gpt-6.1-sol": previous } }, { auth: authAt(base) })
+    expect(models["gpt-6.1-sol"].name).toBe("My Sol")
+    expect(models["gpt-6.1-sol"].limit).toEqual({ context: 50000, input: 90000, output: 10000 })
+    expect(models["gpt-6.1-sol"].capabilities.reasoning).toBe(false)
+    expect(models["levels-only"].capabilities.reasoning).toBe(true)
+    expect(Object.keys(models["levels-only"].variants)).toEqual(["high"])
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
 test("manual model metadata is supplied by the user and bypasses discovery", async () => {

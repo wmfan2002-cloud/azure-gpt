@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.3 — 2026-11-12
+
+- Match ID-only upstream model lists against Magpie's local models.dev
+  catalog. Supplement known model names, reasoning capability, modalities,
+  tool and sampling support, and token limits. Preserve the upstream model
+  ID and Responses API URL.
+- Let Magpie borrow current reasoning levels from the model's maker and
+  family instead of maintaining fixed model parameters in the plugin.
+  Previously an absent reasoning flag prevented that borrowing, leaving
+  models such as `gpt-6.1-sol` without reasoning levels.
+- Keep explicit upstream metadata, existing model configuration and native
+  editor overrides above catalog defaults. Manual model lists still bypass
+  discovery.
+- Reuse Magpie's seeded and synced catalog with installed, XDG and portable
+  cache paths and its OpenCode fallback. Reload changed catalogs and keep
+  the last complete read if a sync is caught mid-write.
+- Test catalog matching, sync/fallback, nonreasoning and unknown models,
+  native model discovery and the existing model-settings editor.
+
 ## 0.4.2 — 2026-11-12
 
 - Remove the standalone settings page, provider-menu action and local HTTP

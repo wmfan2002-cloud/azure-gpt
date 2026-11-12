@@ -5,8 +5,9 @@ Responses requests to your Azure API or relay, preserves normal reasoning,
 and repairs a request only after a specific cross-resource or decryption error.
 No Magpie source patch or separate request proxy is required.
 
-The upstream URL, model IDs and model limits come from your sign-in,
-upstream discovery or plugin options. The provider sends Codex's client
+The upstream URL and model IDs come from your sign-in, upstream discovery
+or plugin options. Known model specifications are supplemented from Magpie's
+models.dev catalog. The provider sends Codex's client
 identity on discovery and requests; explicit client headers take precedence.
 Recovery uses the
 Responses protocol and error content, independently of the upstream domain
@@ -37,6 +38,19 @@ in Magpie's normal key field. Use the original provider's API base, not your
 Magpie server's address or the full `/responses` endpoint. The key and URL are
 kept by Magpie's normal plugin sign-in store. The upstream's
 `/models` endpoint supplies the model list by default.
+
+If that endpoint returns only model IDs, the plugin matches known models
+against Magpie's local models.dev catalog. Names, reasoning capability,
+input/output modalities, tool support, sampling support and token limits
+are filled from that catalog. Magpie supplies reasoning levels using its
+maker and model-family rules, including Codex Ultra where supported. The
+plugin keeps the original model ID and API URL for requests.
+
+Explicit upstream metadata and configured values take precedence over
+catalog defaults; changes in the normal provider editor still apply.
+Magpie seeds the catalog on first run and updates it through `magpie sync`.
+Update the plugin and refresh the provider's models to apply the new
+defaults to an existing sign-in.
 
 In Magpie, select **Azure GPT** (or your chosen name) as the provider for Codex, then
 choose the original model and reasoning level. This is a new provider: merely
@@ -99,9 +113,10 @@ explicit `apiVersion` adds `api-version` to requests and discovery. A custom
 to both discovery and requests.
 
 A nonempty `models` object supplies a manual list shared by the plugin's
-accounts and bypasses discovery. An empty object uses discovery. Configure
-missing metadata if the upstream lists
-only IDs, using the actual capabilities and limits of your channel. For example:
+accounts and bypasses discovery. An empty object uses discovery with
+automatic catalog matching. For an Azure deployment whose custom ID is
+absent from the catalog, set its capabilities and limits in the normal
+**Model settings**, or supply explicit metadata in `models`. For example:
 
 ```json
 {
@@ -193,6 +208,12 @@ approach and are not used by 0.3.0.
 并发、排队和价格等在其“高级”中设置。要明确覆盖一个模型的上下文，可以填
 `模型ID=128k`；统一窗口遵循 Magpie 的上游窗口上限规则。
 
+0.4.3 起，上游只返回模型 ID 时，自动从 Magpie 的 models.dev 目录匹配模型
+名称、推理能力、输入输出类型、工具及采样支持、token 上限；推理档位由 Magpie
+按原厂及模型系列规则补全。更新插件后，在供应商中刷新模型即可。上游明确提供
+的参数和自行配置的值优先。目录中没有的自定义部署 ID，可以在原生“模型设置”
+中配置能力和限制，或通过 Options 的 `models` 提供完整参数。
+
 0.4.2 移除了独立设置页，0.4.0/0.4.1 添加的账号和连接配置继续沿用。
 默认发送 Codex 的 `originator: codex_cli_rs`，同时用于模型发现和请求；
 某些上游缺少这个标识时会拒绝 `/models`，导致模型接口无法注册。
@@ -239,6 +260,8 @@ npm run test:native
 `PLAYWRIGHT_MODULE` can point to an existing Playwright installation.
 `MAGPIE_BIN` and `MAGPIE_BUN` select test executables; `CHROMIUM_EXECUTABLE`
 and `WEBKIT_EXECUTABLE` override browser paths when needed.
-`test:native` checks Magpie's original URL/key sign-in, saved model selections
-and accounts with connection overrides created by the removed page.
+`test:native` checks Magpie's original URL/key sign-in, saved model selections,
+accounts with connection overrides created by the removed page, and ID-only
+discovery against an isolated synthetic Magpie catalog. The browser check
+also verifies the borrowed reasoning levels in the native Model settings.
 `PLUGIN_ROOT` can select a local checkout for that check.

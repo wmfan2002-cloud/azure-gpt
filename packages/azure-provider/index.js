@@ -1,5 +1,6 @@
 import { createRecoveryFetch } from "./transport.js"
 import { baseURL, connection, DEFAULT_NAME, authenticatedHeaders, versionedURL, clientHeaders } from "./connection.js"
+import { createModelCatalog } from "./catalog.js"
 
 const ID = "azure-gpt"
 const NPM = "@ai-sdk/openai"
@@ -7,6 +8,7 @@ const NPM = "@ai-sdk/openai"
 // Use Magpie's built-in API-key sign-in. Credentials are supplied by getAuth;
 // this plugin never reads a provider file or copies another channel's key.
 export default async function azureGPT(input, options = {}) {
+  const catalog = createModelCatalog(input.directory)
   const log = (level, message) => input.client.app.log({ body: { service: ID, level, message } }).catch(() => {})
   const name = typeof options.name === "string" && options.name.trim() ? options.name.trim() : DEFAULT_NAME
   const configuredBase = options.baseURL ? baseURL(options.baseURL) : ""
@@ -80,8 +82,9 @@ export default async function azureGPT(input, options = {}) {
           + ([401, 403].includes(response.status) ? " Check the relay API key and its required client headers in plugin options." : ""))
         const list = await response.json()
         if (!Array.isArray(list.data)) throw new Error("Azure GPT expects /models to return a data array; configure models in plugin options if the relay has no model list.")
+        const knownModel = await catalog()
         const models = Object.fromEntries(list.data.filter((row) => typeof row?.id === "string" && row.id)
-          .map((row) => [row.id, listedModel(row, provider.models[row.id], base)]))
+          .map((row) => [row.id, listedModel(row, provider.models[row.id], base, knownModel(row.id))]))
         if (!Object.keys(models).length) throw new Error("Azure GPT model listing returned no models; configure manual models in plugin options.")
         return models
       },
@@ -89,19 +92,20 @@ export default async function azureGPT(input, options = {}) {
   }
 }
 
-function listedModel(row, previous = {}, base) {
+function listedModel(row, previous = {}, base, known = {}) {
   const levels = row.reasoning_levels ?? row.supported_reasoning_levels?.map((item) => item.effort)
   const variants = Array.isArray(levels) ? Object.fromEntries(levels.filter((x) => typeof x === "string").map((x) => [x, {}])) : previous.variants
   const modalities = (list) => Object.fromEntries(["text", "image", "audio", "video", "pdf"].map((kind) => [kind, list.includes(kind)]))
-  return { ...previous, id: row.id, providerID: ID, name: row.display_name ?? row.name ?? row.id,
+  return { ...known, ...previous, id: row.id, providerID: ID, name: row.display_name ?? row.name ?? (previous.name !== row.id ? previous.name : undefined) ?? known.name ?? row.id,
     api: { id: row.id, npm: NPM, url: base },
+    ...(typeof row.temperature === "boolean" ? { temperature: row.temperature } : {}),
     ...(variants ? { variants } : {}),
-    limit: { ...previous.limit,
+    limit: { ...known.limit, ...Object.fromEntries(Object.entries(previous.limit ?? {}).filter(([, value]) => value > 0)),
       ...(row.context_window || row.context_length ? { context: row.context_window ?? row.context_length } : {}),
       ...(row.max_input_tokens ? { input: row.max_input_tokens } : {}),
       ...(row.max_output_tokens ? { output: row.max_output_tokens } : {}) },
-    capabilities: { ...previous.capabilities,
-      ...(typeof row.reasoning === "boolean" ? { reasoning: row.reasoning } : {}),
+    capabilities: { ...known.capabilities, ...previous.capabilities,
+      ...(typeof row.reasoning === "boolean" ? { reasoning: row.reasoning } : Array.isArray(levels) && levels.length ? { reasoning: true } : {}),
       ...(typeof row.tool_call === "boolean" ? { toolcall: row.tool_call } : {}),
       ...(Array.isArray(row.modalities?.input) ? { input: modalities(row.modalities.input) } : {}),
       ...(Array.isArray(row.modalities?.output) ? { output: modalities(row.modalities.output) } : {}) },
