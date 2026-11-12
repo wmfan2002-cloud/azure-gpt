@@ -55,23 +55,32 @@ export default async function azureGPT(input, options = {}) {
     provider: {
       id: ID,
       async models(provider, context = {}) {
-        if (context.auth?.type === "api") service?.observe(accountKey(), context.auth)
-        if (configuredModels) return Object.fromEntries(Object.entries(provider.models).map(([id, model]) => [id, {
-          ...model,
-          ...(Array.isArray(configuredModels[id]?.serviceTiers) ? { serviceTiers: configuredModels[id].serviceTiers } : {}),
-        }]))
+        const key = accountKey()
+        if (context.auth?.type === "api") service?.observe(key, context.auth)
+        if (configuredModels) {
+          service?.listed(key)
+          return Object.fromEntries(Object.entries(provider.models).map(([id, model]) => [id, {
+            ...model,
+            ...(Array.isArray(configuredModels[id]?.serviceTiers) ? { serviceTiers: configuredModels[id].serviceTiers } : {}),
+          }]))
+        }
         if (context.auth?.type !== "api") return provider.models
-        const config = connection(options, context.auth, accountKey())
-        const base = config.baseURL
-        const headers = authenticatedHeaders(config, context.auth.key)
-        const response = await fetch(config.modelsURL, { signal: context.signal,
-          headers })
-        if (!response.ok) throw new Error(`Azure GPT model listing returned HTTP ${response.status}.`
-          + ([401, 403].includes(response.status) ? " Check the relay API key and its required client headers in plugin options." : ""))
-        const list = await response.json()
-        if (!Array.isArray(list.data)) throw new Error("Azure GPT expects /models to return a data array; configure models in plugin options if the relay has no model list.")
-        return Object.fromEntries(list.data.filter((row) => typeof row?.id === "string" && row.id)
-          .map((row) => [row.id, listedModel(row, provider.models[row.id], base)]))
+        try {
+          const config = connection(options, context.auth, key)
+          const base = config.baseURL
+          const headers = authenticatedHeaders(config, context.auth.key)
+          const response = await fetch(config.modelsURL, { signal: context.signal,
+            headers })
+          if (!response.ok) throw new Error(`Azure GPT model listing returned HTTP ${response.status}.`
+            + ([401, 403].includes(response.status) ? " Check the relay API key and its required client headers in plugin options." : ""))
+          const list = await response.json()
+          if (!Array.isArray(list.data)) throw new Error("Azure GPT expects /models to return a data array; configure models in plugin options if the relay has no model list.")
+          const models = Object.fromEntries(list.data.filter((row) => typeof row?.id === "string" && row.id)
+            .map((row) => [row.id, listedModel(row, provider.models[row.id], base)]))
+          if (!Object.keys(models).length) throw new Error("Azure GPT model listing returned no models; configure manual models in the Azure GPT page.")
+          service?.listed(key)
+          return models
+        } catch (error) { service?.listed(key, error.message); throw error }
       },
     },
   }

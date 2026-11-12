@@ -49,6 +49,7 @@ export function startSettingsService(input, options = {}) {
   }
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error("The settings access token is invalid.")
   const accounts = new Map()
+  const lists = new Map()
   const publicAccount = ({ signature: _signature, ...account }) => account
   const signature = (key, base) => createHash("sha256").update(key + "\0" + base).digest("hex")
   const observe = (id, auth) => {
@@ -60,6 +61,7 @@ export function startSettingsService(input, options = {}) {
     const listing = options.connections?.[id]?.modelsURL ?? options.modelsURL ?? ""
     accounts.set(id, { id, label, accountId: auth.accountId || "", ...config, modelsURL: listing, hasKey: true, signature: signature(auth.key, config.baseURL) })
   }
+  const listed = (id, error = "") => lists.set(id, { done: true, error })
   const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers })
   const server = Bun.serve({ hostname: "127.0.0.1", port: options.uiPort ?? 3487, maxRequestBodySize: 64 * 1024,
     async fetch(request, server) {
@@ -86,6 +88,20 @@ export function startSettingsService(input, options = {}) {
         setTimeout(() => server.stop(false), 0)
         return json({ retired: true }, 200, headers)
       }
+      if (path === "/api/catalog" && request.method === "GET") {
+        try {
+          // MAGPIE_ADDR is supplied by the official host, including custom
+          // gateway ports. Read the published catalog that agents receive.
+          const gateway = new URL("http://" + process.env.MAGPIE_ADDR)
+          if (!gateway.port || !["127.0.0.1", "localhost", "[::1]"].includes(gateway.hostname) || gateway.username || gateway.password) throw new Error("Magpie's local gateway address is unavailable.")
+          const response = await fetch(new URL("/v1/models", gateway), { signal: AbortSignal.timeout(3000) })
+          if (!response.ok) throw new Error("Magpie's model catalog returned HTTP " + response.status + ".")
+          const catalog = await response.json()
+          if (!Array.isArray(catalog.data)) throw new Error("Magpie's model catalog is unavailable.")
+          const models = catalog.data.filter((model) => [ID, ID + "-plugin"].includes(model.owned_by)).map((model) => model.id)
+          return json({ models, accounts: Object.fromEntries(lists) }, 200, headers)
+        } catch (error) { return json({ error: error.message, models: [], accounts: Object.fromEntries(lists) }, 200, headers) }
+      }
       if (path === "/api/accounts" && request.method === "GET") return json({ accounts: [...accounts.values()].map(publicAccount) }, 200, headers)
       if (path !== "/api/accounts" || request.method !== "POST") return json({ error: "Not found" }, 404, headers)
       try {
@@ -105,6 +121,7 @@ export function startSettingsService(input, options = {}) {
         const id = existing?.id || body.newAccount || ID + "#" + randomBytes(8).toString("hex")
         const auth = { type: "api", key, accountId: existing ? existing.accountId : label || new URL(base).host,
           metadata: { baseURL: base, ...(label ? { accountName: label } : {}) } }
+        lists.delete(id)
         await input.client.auth.set({ path: { id }, body: auth })
         observe(id, auth)
         return json({ account: publicAccount(accounts.get(id)) }, 200, headers)
@@ -113,5 +130,5 @@ export function startSettingsService(input, options = {}) {
       }
     },
   })
-  return { observe, server, stop: () => server.stop(true) }
+  return { observe, listed, server, stop: () => server.stop(true) }
 }

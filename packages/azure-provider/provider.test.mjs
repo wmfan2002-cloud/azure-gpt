@@ -120,3 +120,9 @@ test("model listing URL and API-key authentication are configurable", async () =
   const plugin = await azureGPT(input, { modelsURL: "https://relay.example/catalog", authHeader: "api-key", apiVersion: "test-version" })
   expect(Object.keys(await plugin.provider.models({ models: {} }, { auth: authAt("https://relay.example/v1") }))).toEqual(["deployment"])
 })
+
+test("an empty upstream model list reports why the provider has no models", async () => {
+  fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [] }))
+  const plugin = await azureGPT(input)
+  await expect(plugin.provider.models({ models: {} }, { auth: authAt("https://relay.example/v1") })).rejects.toThrow("model listing returned no models")
+})

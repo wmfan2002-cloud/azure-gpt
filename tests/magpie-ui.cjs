@@ -21,7 +21,12 @@ async function run(engine, lang) {
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined
     seen.push({ method: req.method, url: req.url, body, headers: req.headers })
     res.setHeader("Content-Type", "application/json")
-    if (req.method === "GET") return res.end(JSON.stringify({ data: [{ id: "test-deployment", reasoning: true, reasoning_levels: ["medium"], context_window: 64000, max_output_tokens: 8192, tool_call: true }] }))
+    if (req.method === "GET") {
+      if (req.headers["api-key"] === "reject-model-key") { res.statusCode = 401; return res.end(JSON.stringify({ error: "model discovery refused" })) }
+      // Reproduce a first install whose discovery finishes after key storage.
+      await sleep(Number(process.env.MODEL_LIST_DELAY ?? 1200))
+      return res.end(JSON.stringify({ data: [{ id: "test-deployment", reasoning: true, reasoning_levels: ["medium"], context_window: 64000, max_output_tokens: 8192, tool_call: true }] }))
+    }
     if (body?.input?.some((item) => item.type === "reasoning")) {
       res.statusCode = 400
       return res.end(JSON.stringify({ error: { code: "invalid_encrypted_content", message: "Encrypted content could not be decrypted or parsed." } }))
@@ -71,6 +76,8 @@ async function run(engine, lang) {
     await frame.locator('#add-extra input').nth(1).fill("test-version")
     await frame.locator("#add-form [data-save]").click()
     await frame.locator("#connections .connection").waitFor()
+    await frame.locator("#add-form [data-save]:enabled").waitFor()
+    await frame.locator("#status[data-error=false]").waitFor()
     assert.equal(await frame.locator("#add-key").inputValue(), "")
     const saved = JSON.parse(await fs.readFile(path.join(config, "plugins.json")))
     assert.equal(saved.plugins[0].options.name, "My Azure")
@@ -80,6 +87,9 @@ async function run(engine, lang) {
     const account = Object.keys(auth)[0]
     assert.equal(auth[account].key, "fake-private-key-one")
     assert.equal(auth[account].accountId, "Work")
+    const first = await fetch(`http://127.0.0.1:${gatewayPort}/v1/responses`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "azure-gpt/test-deployment", stream: false, input: [{ role: "user", content: "first request after adding" }] }) })
+    assert.equal(first.status, 200, await first.text())
+    seen.length = 0
     const connection = frame.locator("#connections .connection").first()
     await connection.locator('input[type=url]').first().fill(upstreamBase + "/changed/v1")
     await connection.locator('[data-save]').click()
@@ -89,7 +99,11 @@ async function run(engine, lang) {
     for (let n = 0; n < 100; n++) { auth = JSON.parse(await fs.readFile(path.join(config, "plugin-auth.json"))); if (auth[account].key === "fake-private-key-two") break; await sleep(100) }
     assert.equal(auth[account].key, "fake-private-key-two")
     assert.equal(auth[account].accountId, "Work")
-    await frame.locator("#manual").click(); await frame.locator("#add-model").click()
+    await frame.locator("#manual").click()
+    await frame.locator("#models-form [data-save]").click()
+    await frame.locator("#status[data-error=true]").waitFor()
+    assert((await frame.locator("#status").textContent()).includes(lang === "zh" ? "至少添加一个" : "at least one"))
+    await frame.locator("#add-model").click()
     const model = frame.locator("#model-rows .model").first(), inputs = model.locator(".grid input")
     await inputs.nth(0).fill("test-deployment"); await inputs.nth(1).fill("Test deployment")
     await inputs.nth(2).fill("64000"); await inputs.nth(3).fill("8192"); await inputs.nth(4).fill("medium")
@@ -121,8 +135,18 @@ async function run(engine, lang) {
     await page.setViewportSize({ width: 420, height: 900 })
     assert(await frame.locator("main").evaluate((el) => el.scrollWidth <= document.documentElement.clientWidth), "mobile layout fits")
     if (process.env.UI_SCREENSHOT) await page.screenshot({ path: process.env.UI_SCREENSHOT, fullPage: true })
+    await frame.locator("#discovery").click()
+    await frame.locator("#models-form [data-save]").click()
+    await frame.locator("#status[data-error=false]").waitFor()
+    await frame.locator("#account-name").fill("Discovery refused")
+    await frame.locator("#add-key").fill("reject-model-key")
+    await frame.locator("#add-form [data-save]").click()
+    await frame.locator("#add-form [data-save]:enabled").waitFor()
+    await frame.locator("#status[data-error=true]").waitFor()
+    assert((await frame.locator("#status").textContent()).includes("HTTP 401"), "discovery failures explain why the saved account is not ready")
+    assert.equal(await frame.locator("#add-key").inputValue(), "")
     assert.equal(errors.length, 0, errors.join("\n"))
-    console.log(`PASS ${engine} ${lang}: add and rename, account URL/key editing, model form, preserved options, authenticated recovery, host transfer during a request, narrow layout`)
+    console.log(`PASS ${engine} ${lang}: first discovered request, discovery errors, add and rename, account URL/key editing, model form validation, preserved options, authenticated recovery, host transfer during a request, narrow layout`)
   } catch (error) {
     if (page) for (const frame of page.frames()) {
       const status = await frame.locator("#status").textContent().catch(() => "")
@@ -132,6 +156,9 @@ async function run(engine, lang) {
     console.error("Settings requests:", network)
     console.error("Saved options:", await fs.readFile(path.join(config, "plugins.json"), "utf8"))
     console.error("Saved accounts:", Object.keys(JSON.parse(await fs.readFile(path.join(config, "plugin-auth.json"), "utf8").catch(() => "{}"))))
+    console.error("Upstream requests:", seen.map(({ method, url }) => ({ method, url })))
+    const catalog = JSON.parse(await fs.readFile(path.join(config, "plugin-providers.json"), "utf8").catch(() => "[]"))
+    console.error("Plugin catalog:", catalog.map(({ id, fellBack, listError, models }) => ({ id, fellBack, listError, models: models?.map(({ id, npm }) => ({ id, npm })) })))
     console.error("Browser errors:", errors)
     console.error(logs.slice(-4000)); throw error
   } finally {

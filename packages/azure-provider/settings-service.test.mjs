@@ -12,7 +12,7 @@ const fixture = (options = {}) => {
   const service = startSettingsService(input, { ...options, uiPort: 0 })
   const token = readFileSync(join(directory, "plugin-work/azure-gpt-settings.token"), "utf8")
   const base = `http://127.0.0.1:${service.server.port}`
-  const ask = (method = "GET", body, extra = {}) => fetch(base + "/api/accounts", { method, headers: { "x-azure-settings-token": token, "content-type": "application/json", ...extra }, ...(body ? { body: JSON.stringify(body) } : {}) })
+  const ask = (method = "GET", body, extra = {}, route = "accounts") => fetch(base + "/api/" + route, { method, headers: { "x-azure-settings-token": token, "content-type": "application/json", ...extra }, ...(body ? { body: JSON.stringify(body) } : {}) })
   const result = { directory, saved, input, service, token, base, ask }; fixtures.push(result); return result
 }
 
@@ -81,4 +81,27 @@ test("a service from another profile cannot be retired", async () => {
   expect(warnings.length).toBe(1)
   expect((await f.ask()).status).toBe(200)
   expect((await other.ask()).status).toBe(200)
+})
+
+test("readiness uses Magpie's published models, not just a stored account", async () => {
+  const f = fixture(), previous = process.env.MAGPIE_ADDR
+  let models = [{ id: "other/deployment", owned_by: "other" }]
+  const gateway = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ data: models }) })
+  process.env.MAGPIE_ADDR = "127.0.0.1:" + gateway.port
+  try {
+    f.service.listed("azure-gpt#one")
+    let catalog = await (await f.ask("GET", undefined, {}, "catalog")).json()
+    expect(catalog.models).toEqual([])
+    expect(catalog.accounts["azure-gpt#one"]).toEqual({ done: true, error: "" })
+    models.push({ id: "azure-gpt/deployment", owned_by: "azure-gpt" })
+    catalog = await (await f.ask("GET", undefined, {}, "catalog")).json()
+    expect(catalog.models).toEqual(["azure-gpt/deployment"])
+    f.service.listed("azure-gpt#one", "model listing returned HTTP 401")
+    catalog = await (await f.ask("GET", undefined, {}, "catalog")).json()
+    expect(catalog.accounts["azure-gpt#one"].error).toContain("HTTP 401")
+    expect((await fetch(f.base + "/api/catalog")).status).toBe(403)
+  } finally {
+    gateway.stop(true)
+    if (previous === undefined) delete process.env.MAGPIE_ADDR; else process.env.MAGPIE_ADDR = previous
+  }
 })

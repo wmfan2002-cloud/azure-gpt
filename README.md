@@ -30,6 +30,15 @@ Existing accounts appear under **Existing connections**. You can also open
 the page from a provider row's menu with **Azure GPT settings**. The page
 uses English or Chinese according to Magpie's language.
 
+Adding waits for the models to appear in Magpie's own catalog before showing
+**Account added**. If discovery fails, the page says that the key was saved
+and shows the discovery error; check the connection or use manual models.
+
+If a first request after adding through the 0.4.0 page failed with
+`Azure GPT has no endpoint configured`, update to 0.4.1, reopen the page,
+refresh the model list in Providers and retry. Existing sign-ins and URLs
+are retained.
+
 The standard Magpie sign-in remains available:
 
 ```sh
@@ -217,8 +226,12 @@ environment, then run:
 ```sh
 npm run test:ui
 BROWSER=webkit npm run test:ui
+npm run test:native
 ```
 
 `PLAYWRIGHT_MODULE` can point to an existing Playwright installation.
 `MAGPIE_BIN` and `MAGPIE_BUN` select test executables; `CHROMIUM_EXECUTABLE`
 and `WEBKIT_EXECUTABLE` override browser paths when needed.
+`test:native` checks Magpie's original URL/key sign-in and a saved account
+with its existing model selection. `PLUGIN_ROOT` can select a local baseline
+checkout for that compatibility check.

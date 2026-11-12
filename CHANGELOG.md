@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1 — 2026-11-12
+
+- Fix the new settings page reporting an account added before Magpie had
+  published its models. On a first install with slow model discovery, an
+  immediate request could hold a provider with no interface and fail with
+  `Azure GPT has no endpoint configured` even after discovery completed.
+- Wait for both account discovery and Magpie's published model list before
+  completing Add account. Show the discovery error when the key was saved
+  but models could not load.
+- Reject an empty manual model form and report an empty upstream list with
+  a model-configuration message.
+- Add first-request checks with delayed discovery, explicit discovery
+  failures, and native URL/key sign-in plus existing-account compatibility.
+
 ## 0.4.0 — 2026-11-12
 
 - Use **Azure GPT** as the English default provider display name. Preserve
