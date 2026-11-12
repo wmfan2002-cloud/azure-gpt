@@ -53,6 +53,11 @@ used as written. If discovery supplies only model IDs, configure the missing
 metadata using your upstream's supported settings. `headers` carries the
 client headers you configure, on both discovery and requests.
 
+Add `"name": "My Azure"` to your existing options to customize the provider's
+display name. An omitted or blank name uses **Azure GPT · 按报错修复**. The
+provider ID remains `azure-gpt`, so existing model selections and sign-ins
+continue to work. Keep your other connection and model options when editing.
+
 ```json
 {
   "baseURL": "https://relay.example.com/v1",
@@ -125,6 +130,9 @@ approach and are not used by 0.3.0.
 修复逻辑依据 Responses 协议与报错内容工作，不绑定特定渠道或模型。
 正常请求保留完整 reasoning；遇到对应错误且尚未输出时才修复并重试一次。
 不会把整个会话切成永久清理模式，也不会改本地对话历史。
+
+渠道显示名称可在插件 Options 的现有 JSON 中添加 `"name": "自定义名称"`
+来设置。未填写时使用默认名称；渠道 ID 仍为 `azure-gpt`。
 
 跨资源报错可能在后续请求再次发生。要持续复用原始加密推理状态，上游仍需把
 同一对话固定到兼容的 Azure 资源；插件在资源不兼容时负责恢复可继续的请求。

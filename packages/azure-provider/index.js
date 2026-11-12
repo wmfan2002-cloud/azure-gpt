@@ -7,6 +7,7 @@ const NPM = "@ai-sdk/openai"
 // this plugin never reads a provider file or copies another channel's key.
 export default async function azureGPT(input, options = {}) {
   const log = (level, message) => input.client.app.log({ body: { service: ID, level, message } }).catch(() => {})
+  const name = typeof options.name === "string" && options.name.trim() ? options.name.trim() : "Azure GPT · 按报错修复"
   const configuredBase = options.baseURL ? baseURL(options.baseURL) : ""
   const configuredHeaders = Object.fromEntries(new Headers(options.headers ?? {}))
   const configuredModels = options.models && typeof options.models === "object" && !Array.isArray(options.models)
@@ -14,7 +15,7 @@ export default async function azureGPT(input, options = {}) {
   return {
     config(config) {
       config.provider ??= {}
-      config.provider[ID] = { ...config.provider[ID], name: "Azure GPT · 按报错修复", npm: NPM,
+      config.provider[ID] = { ...config.provider[ID], name, npm: NPM,
         ...(configuredBase ? { api: configuredBase } : {}),
         searches: options.searches === true,
         models: { ...(config.provider[ID]?.models ?? {}), ...(configuredModels ?? {}) } }

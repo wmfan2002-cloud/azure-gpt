@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4 — 2026-11-12
+
+- Allow a custom provider display name through the `name` plugin option.
+  Omitted or blank names use the default. Provider IDs, model selections,
+  sign-ins and history recovery remain the same.
+
 ## 0.3.3 — 2026-11-12
 
 - Keep upstream URLs, deployment names, model metadata and extra client
