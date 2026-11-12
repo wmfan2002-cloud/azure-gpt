@@ -1,4 +1,6 @@
 import { createRecoveryFetch } from "./transport.js"
+import { baseURL, connection, DEFAULT_NAME, authenticatedHeaders, versionedURL } from "./connection.js"
+import { settingsService } from "./settings-service.js"
 
 const ID = "azure-gpt"
 const NPM = "@ai-sdk/openai"
@@ -7,11 +9,12 @@ const NPM = "@ai-sdk/openai"
 // this plugin never reads a provider file or copies another channel's key.
 export default async function azureGPT(input, options = {}) {
   const log = (level, message) => input.client.app.log({ body: { service: ID, level, message } }).catch(() => {})
-  const name = typeof options.name === "string" && options.name.trim() ? options.name.trim() : "Azure GPT · 按报错修复"
+  const name = typeof options.name === "string" && options.name.trim() ? options.name.trim() : DEFAULT_NAME
   const configuredBase = options.baseURL ? baseURL(options.baseURL) : ""
-  const configuredHeaders = Object.fromEntries(new Headers(options.headers ?? {}))
   const configuredModels = options.models && typeof options.models === "object" && !Array.isArray(options.models)
     ? options.models : null
+  const accountKey = () => input.magpie?.account?.(ID) || ID
+  const service = await settingsService(input, options, log)
   return {
     config(config) {
       config.provider ??= {}
@@ -36,27 +39,32 @@ export default async function azureGPT(input, options = {}) {
       async loader(getAuth) {
         const auth = await getAuth()
         if (auth?.type !== "api" || !auth.key) throw new Error("Sign in to Azure GPT with your upstream API key.")
-        const base = configuredBase || baseURL(auth.metadata?.baseURL)
-        return { baseURL: base, apiKey: auth.key,
-          headers: { ...configuredHeaders },
-          fetch: createRecoveryFetch(globalThis.fetch, {
-            enabled: () => input.magpie?.option(ID, "recovery") !== false,
-            log,
-          }) }
+        const key = accountKey()
+        service?.observe(key, auth)
+        const config = connection(options, auth, key)
+        const recovery = createRecoveryFetch(globalThis.fetch, {
+          enabled: () => input.magpie?.option(ID, "recovery") !== false,
+          log,
+        })
+        return { baseURL: config.baseURL, apiKey: auth.key,
+          headers: config.headers,
+          fetch: (url, init = {}) => recovery(versionedURL(url, config.apiVersion),
+            config.authHeader === "authorization" ? init : { ...init, headers: authenticatedHeaders(config, auth.key, init.headers) }) }
       },
     },
     provider: {
       id: ID,
       async models(provider, context = {}) {
+        if (context.auth?.type === "api") service?.observe(accountKey(), context.auth)
         if (configuredModels) return Object.fromEntries(Object.entries(provider.models).map(([id, model]) => [id, {
           ...model,
           ...(Array.isArray(configuredModels[id]?.serviceTiers) ? { serviceTiers: configuredModels[id].serviceTiers } : {}),
         }]))
         if (context.auth?.type !== "api") return provider.models
-        const base = configuredBase || baseURL(context.auth.metadata?.baseURL)
-        const headers = new Headers(configuredHeaders)
-        headers.set("authorization", "Bearer " + context.auth.key)
-        const response = await fetch(base + "/models", { signal: context.signal,
+        const config = connection(options, context.auth, accountKey())
+        const base = config.baseURL
+        const headers = authenticatedHeaders(config, context.auth.key)
+        const response = await fetch(config.modelsURL, { signal: context.signal,
           headers })
         if (!response.ok) throw new Error(`Azure GPT model listing returned HTTP ${response.status}.`
           + ([401, 403].includes(response.status) ? " Check the relay API key and its required client headers in plugin options." : ""))
@@ -67,15 +75,6 @@ export default async function azureGPT(input, options = {}) {
       },
     },
   }
-}
-
-function baseURL(value) {
-  let url
-  try { url = new URL(value) } catch { throw new Error("Enter a valid Responses API base URL, including its /v1 path.") }
-  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw new Error("Use an HTTP(S) base URL without credentials, query parameters or a fragment.")
-  }
-  return url.href.replace(/\/+$/, "")
 }
 
 function listedModel(row, previous = {}, base) {

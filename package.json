@@ -1,14 +1,21 @@
 {
   "name": "@magpie-community/azure-gpt",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "private": true,
   "description": "Azure Responses provider for stock Magpie: retain normal reasoning and repair only rejected requests",
   "type": "module",
   "main": "./packages/azure-provider/index.js",
   "exports": "./packages/azure-provider/index.js",
   "license": "MIT",
+  "magpie": {
+    "name": "Azure GPT",
+    "page": { "title": "Azure GPT", "file": "packages/azure-provider/ui/index.html", "service": { "port": 3487, "option": "uiPort" } },
+    "actions": [{ "id": "settings", "menu": "provider", "title": "Azure GPT settings", "titles": { "zh": "Azure GPT 连接设置" } }],
+    "permissions": ["providers:list"]
+  },
   "repository": { "type": "git", "url": "git+https://github.com/wmfan2002-cloud/azure-gpt.git" },
   "scripts": {
-    "test": "bun test packages"
+    "test": "bun test packages",
+    "test:ui": "node tests/magpie-ui.cjs"
   }
 }

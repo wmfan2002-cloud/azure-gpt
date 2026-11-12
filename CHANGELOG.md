@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 — 2026-11-12
+
+- Use **Azure GPT** as the English default provider display name. Preserve
+  existing custom names and the `azure-gpt` provider ID.
+- Add a visual plugin page and provider-menu action. Set the display name,
+  account name, URL and key together when adding an account; rename later
+  without editing JSON.
+- Edit existing accounts' URLs, authentication headers, API versions,
+  model listing URLs and extra request headers. Optional key replacement
+  preserves account identity; an empty replacement keeps the stored key.
+- Support Azure `api-key` authentication and explicitly configured
+  `api-version` on discovery and Responses requests.
+- Add manual model forms for deployments, names, token limits, reasoning,
+  image input, tool calls, reasoning levels and service tiers. Other basic
+  account settings use Magpie's regular provider editor.
+- Store keys through Magpie's auth SDK. Serve the settings page in the
+  existing plugin host and retain unedited plugin options. Handle sandboxed
+  page actions, options-write throttling and host restarts. Transfer the
+  settings listener when an old host is still finishing a model request.
+- Check settings and authenticated recovery through real Magpie browser
+  flows with an isolated profile and simulated upstream.
+
 ## 0.3.4 — 2026-11-12
 
 - Allow a custom provider display name through the `name` plugin option.

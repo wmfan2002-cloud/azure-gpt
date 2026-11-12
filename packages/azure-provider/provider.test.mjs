@@ -83,3 +83,40 @@ test("manual model metadata is supplied by the user and bypasses discovery", asy
   expect(models["custom-deployment"].serviceTiers).toEqual(["priority"])
   expect(models["custom-deployment"].variants).toEqual(model.variants)
 })
+
+test("per-account connection edits override shared settings without changing the key", async () => {
+  const plugin = await azureGPT({ ...input, magpie: { account: () => "azure-gpt#second" } }, {
+    baseURL: "https://shared.example/v1", headers: { "X-Client": "shared" },
+    connections: { "azure-gpt#second": { baseURL: "https://account.example/openai/v1", headers: { "X-Client": "account" } } },
+  })
+  const loader = await plugin.auth.loader(async () => authAt("https://original.example/v1"))
+  expect(loader.baseURL).toBe("https://account.example/openai/v1")
+  expect(loader.apiKey).toBe("test-relay-key")
+  expect(loader.headers).toEqual({ "x-client": "account" })
+})
+
+test("Azure API-key authentication and an explicit API version preserve the Responses body", async () => {
+  const calls = []
+  fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (url, init) => { calls.push({ url, ...init }); return Response.json({ status: "completed", output: [] }) })
+  const plugin = await azureGPT(input, { authHeader: "api-key", apiVersion: "test-version", baseURL: "https://resource.openai.azure.com/openai" })
+  const loader = await plugin.auth.loader(async () => authAt("https://relay.example/v1"))
+  const body = JSON.stringify({ model: "deployment", input: "hello", reasoning: { effort: "medium" } })
+  const response = await loader.fetch(loader.baseURL + "/responses", { method: "POST", body, headers: { authorization: "Bearer client-key", "x-client": "custom" } })
+  await response.text()
+  expect(calls[0].url).toBe("https://resource.openai.azure.com/openai/responses?api-version=test-version")
+  expect(calls[0].body).toBe(body)
+  expect(new Headers(calls[0].headers).get("api-key")).toBe("test-relay-key")
+  expect(new Headers(calls[0].headers).has("authorization")).toBe(false)
+  expect(new Headers(calls[0].headers).get("x-client")).toBe("custom")
+})
+
+test("model listing URL and API-key authentication are configurable", async () => {
+  fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+    expect(url).toBe("https://relay.example/catalog?api-version=test-version")
+    expect(new Headers(init.headers).get("api-key")).toBe("test-relay-key")
+    expect(new Headers(init.headers).has("authorization")).toBe(false)
+    return Response.json({ data: [{ id: "deployment" }] })
+  })
+  const plugin = await azureGPT(input, { modelsURL: "https://relay.example/catalog", authHeader: "api-key", apiVersion: "test-version" })
+  expect(Object.keys(await plugin.provider.models({ models: {} }, { auth: authAt("https://relay.example/v1") }))).toEqual(["deployment"])
+})

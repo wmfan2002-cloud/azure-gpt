@@ -3,7 +3,7 @@
 An **OpenCode-compatible provider plugin for official Magpie**. It sends native
 Responses requests to your Azure API or relay, preserves normal reasoning,
 and repairs a request only after a specific cross-resource or decryption error.
-No Magpie source patch or separate proxy service is required.
+No Magpie source patch or separate request proxy is required.
 
 The upstream URL, model IDs, model limits and client headers come from your
 sign-in, upstream model discovery or plugin options. Recovery uses the
@@ -18,18 +18,34 @@ Codex → official Magpie → Azure GPT provider plugin → your Responses API
 
 ```sh
 magpie plugin add github:wmfan2002-cloud/azure-gpt#main
+```
+
+Open **Azure GPT** in the sidebar's Plugins group. In the page, choose a
+**Display name**, then fill in the account name, **API base URL** and **API
+key**. Click **Add account and save name**. You can name the provider while
+adding its first account, and rename it later with **Save name**. The default
+display name is **Azure GPT**; the provider ID stays `azure-gpt`.
+
+Existing accounts appear under **Existing connections**. You can also open
+the page from a provider row's menu with **Azure GPT settings**. The page
+uses English or Chinese according to Magpie's language.
+
+The standard Magpie sign-in remains available:
+
+```sh
 magpie plugin login azure-gpt
 ```
 
-The sign-in first asks for your **Responses API base URL**, such as
+That sign-in first asks for your **Responses API base URL**, such as
 `https://your-resource.openai.azure.com/openai/v1` or
 `https://relay.example.com/v1`. Click Next, then enter the upstream's API key
 in Magpie's normal key field. Use the original provider's API base, not your
 Magpie server's address or the full `/responses` endpoint. The key and URL are
-kept by Magpie's normal plugin sign-in store. The plugin never reads another
-channel's keys. The upstream's `/models` endpoint supplies the model list.
+kept by Magpie's normal plugin sign-in store. Keys entered in the visual
+page use the same store; the page never displays a saved key. The upstream's
+`/models` endpoint supplies the model list by default.
 
-In Magpie, select **Azure GPT · 按报错修复** as the provider for Codex, then
+In Magpie, select **Azure GPT** (or your chosen name) as the provider for Codex, then
 choose the original model and reasoning level. This is a new provider: merely
 installing it does not intercept another provider's requests.
 
@@ -46,20 +62,41 @@ GitHub installation off first so the two copies do not compete to serve
 
 ### Connection and model options
 
-Use **Plugins → Installed → Options** to set non-secret connection details and
-model metadata. Keep the upstream's actual limits and supported reasoning
-levels. A `models` object disables `/models` discovery; the supplied list is
-used as written. If discovery supplies only model IDs, configure the missing
-metadata using your upstream's supported settings. `headers` carries the
-client headers you configure, on both discovery and requests.
+Use the **Azure GPT** page to edit each account's API base URL, authentication
+header, optional API version, optional model list URL and extra request
+headers. Leave **Replacement API key** empty to keep the stored key.
+Connection edits apply to the selected account.
 
-Add `"name": "My Azure"` to your existing options to customize the provider's
-display name. An omitted or blank name uses **Azure GPT · 按报错修复**. The
-provider ID remains `azure-gpt`, so existing model selections and sign-ins
-continue to work. Keep your other connection and model options when editing.
+The default authentication is `authorization: Bearer <key>`. For an Azure
+endpoint that expects an API key header, set **Authentication header** to
+`api-key`. An explicitly configured **API version** adds `api-version` to
+requests and model discovery. A custom model list URL must use the same
+origin as the API base URL.
+
+Under **Model discovery**, choose upstream discovery or **Manual models**.
+The manual form covers model/deployment IDs, display names, context and
+output limits, reasoning, image input, tool calls, reasoning levels and
+service tiers. Keep the upstream's actual limits and supported levels. Manual
+models are shared by this plugin's accounts and replace discovery. Extra
+request headers are sent on both discovery and model requests.
+
+Magpie's regular **Providers** editor supplies the other account controls:
+model selection and aliases, reasoning levels, context/output/compaction
+limits, fallback and routing, per-account proxies, concurrency, queues,
+pricing and the history-repair switch. The plugin uses the same account
+editor as official provider plugins. Custom-provider-only fields, such as
+protocol selection, TLS certificates and balance-query endpoints, are not
+exposed by this plugin; its transport is Responses.
+
+Advanced users can still edit **Plugins → Installed → Options** or use
+`magpie plugin options`. The visual page preserves options it does not edit.
+Shared `baseURL`, `authHeader`, `apiVersion`, `modelsURL` and `headers` options
+provide defaults; `connections[accountID]` contains per-account overrides.
+An omitted or blank `name` uses **Azure GPT**. For example:
 
 ```json
 {
+  "name": "My Azure",
   "baseURL": "https://relay.example.com/v1",
   "models": {
     "your-model-id": {
@@ -73,8 +110,14 @@ continue to work. Keep your other connection and model options when editing.
 }
 ```
 
-After configuring the URL here, sign-in only asks for the API key. Enter keys
-in Magpie's sign-in dialog, not in plugin options or shell arguments.
+After configuring a shared URL here, standard sign-in only asks for the API
+key. Enter keys in the visual page or Magpie's sign-in dialog, not in plugin
+options or shell arguments.
+
+The settings page is served inside Magpie's existing plugin host. Its local
+port defaults to `3487`; if that port is in use, set `uiPort` in plugin
+options and reopen the page. Magpie web exposes the page through its plugin
+service bridge, so a remote browser uses the same page.
 
 ## What happens to reasoning
 
@@ -124,15 +167,24 @@ approach and are not used by 0.3.0.
 ## 中文快速说明
 
 这是渠道插件，不再是依赖主程序补丁的请求中间件。安装后在 Magpie 中为
-**Azure GPT · 按报错修复** 登录原来的中转 API Key，再给 Codex 选用该渠道。
-新服务器首次登录先填原上游的 API 基础地址（例如 `https://中转域名/v1`），
-点击“下一步”后再输入 API Key。上游地址、模型和额外请求头由用户自行配置，
+**Azure GPT** 页面填写显示名称、账号名称、原上游的 API 基础地址
+（例如 `https://中转域名/v1`）和 API Key，点击“添加账号并保存名称”，
+再给 Codex 选用该渠道。标准登录也可用，依次填写 URL 和 Key。
+上游地址、模型和额外请求头由用户自行配置，
 修复逻辑依据 Responses 协议与报错内容工作，不绑定特定渠道或模型。
 正常请求保留完整 reasoning；遇到对应错误且尚未输出时才修复并重试一次。
 不会把整个会话切成永久清理模式，也不会改本地对话历史。
 
-渠道显示名称可在插件 Options 的现有 JSON 中添加 `"name": "自定义名称"`
-来设置。未填写时使用默认名称；渠道 ID 仍为 `azure-gpt`。
+默认英文名称为 **Azure GPT**。改名直接在页面填写“显示名称”并保存，
+渠道 ID 仍为 `azure-gpt`，已有登录和模型选择沿用原 ID。
+在“已有连接”中可修改 URL、认证请求头、API 版本、模型列表地址及额外请求头，
+替换 Key 留空即保留原 Key。需要 Azure Key 认证时将认证请求头设为 `api-key`。
+
+“模型发现”提供上游列表和手动模型两种方式，可填写部署 ID、名称、Token
+上限、推理/图像/工具能力和推理档位。账号的模型选择、别名、压缩、回退、
+路由、代理、并发、排队和价格等继续在 Magpie 的供应商编辑器中设置。
+插件采用 Responses 协议，自定义供应商专有的协议切换、证书和余额查询
+等字段没有全部复刻。
 
 跨资源报错可能在后续请求再次发生。要持续复用原始加密推理状态，上游仍需把
 同一对话固定到兼容的 Azure 资源；插件在资源不兼容时负责恢复可继续的请求。
@@ -151,5 +203,22 @@ node --check packages/azure-provider/transport.js
 ```
 
 `bun test packages` covers provider setup, account-specific URLs, custom
-headers and model metadata, HTTP/SSE recovery across different API base
-paths, and the legacy middleware.
+authentication and API versions, model metadata, settings access and key
+replacement, HTTP/SSE recovery across different API base paths, and the
+legacy middleware.
+
+The browser check starts an installed Magpie with a temporary profile and a
+simulated upstream. It checks adding and renaming, URL/key edits, manual
+models, preserved settings, authenticated recovery, settings-host transfer
+during a running request and a narrow layout, in English and Chinese.
+Install Playwright and its browsers in your test
+environment, then run:
+
+```sh
+npm run test:ui
+BROWSER=webkit npm run test:ui
+```
+
+`PLAYWRIGHT_MODULE` can point to an existing Playwright installation.
+`MAGPIE_BIN` and `MAGPIE_BUN` select test executables; `CHROMIUM_EXECUTABLE`
+and `WEBKIT_EXECUTABLE` override browser paths when needed.
